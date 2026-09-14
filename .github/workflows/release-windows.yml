@@ -32,9 +32,43 @@ jobs:
           npm run typecheck
           npm test
 
-      - name: Собрать и опубликовать установщик
-        run: npm run release:win
+      - name: Собрать установщик
+        run: npm run build:win
         env:
-          GH_TOKEN: ${{ github.token }}
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Опубликовать установщик одним релизом
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = "v$version"
+          $installer = "release/SlayCam-Setup-$version.exe"
+          $blockmap = "$installer.blockmap"
+          $metadata = "release/latest.yml"
+
+          if ("${{ github.ref_name }}" -ne $tag) {
+            throw "Тег ${{ github.ref_name }} не совпадает с версией $version"
+          }
+
+          foreach ($file in @($installer, $blockmap, $metadata)) {
+            if (-not (Test-Path $file)) {
+              throw "Не найден файл релиза: $file"
+            }
+          }
+
+          gh release view $tag --repo "${{ github.repository }}" *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists) {
+            gh release upload $tag $installer $blockmap $metadata `
+              --clobber `
+              --repo "${{ github.repository }}"
+          } else {
+            gh release create $tag $installer $blockmap $metadata `
+              --title $version `
+              --generate-notes `
+              --repo "${{ github.repository }}"
+          }

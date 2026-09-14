@@ -25,7 +25,7 @@ export function StudioPage(props: StudioPageProps) {
           <h1>Студия</h1>
           <p>Проверь жесты, движения и эффекты до звонка.</p>
         </div>
-        <span className="playful-label">Slay mode</span>
+        {/* <span className="playful-label">Сияй</span> */}
       </header>
       <div className="studio-grid">
         <PreviewStage
@@ -33,7 +33,7 @@ export function StudioPage(props: StudioPageProps) {
           status={props.status}
           readings={props.readings}
           activeCount={props.effects.length}
-          cameraOn={props.status.phase === 'ready'}
+          cameraOn={props.status.phase === "ready"}
           outputOpen={props.config.settings.outputWindowOpen}
           showFps={props.config.settings.showFps}
           fps={props.fps}
@@ -46,44 +46,83 @@ export function StudioPage(props: StudioPageProps) {
             <div className="section-heading">
               <div>
                 <h2>Готово к сцене</h2>
-                <p>{readyRules ? `${readyRules} эффектов включено` : 'Пока нет настроенных эффектов'}</p>
+                <p>
+                  {readyRules
+                    ? `${readyRules} эффектов включено`
+                    : "Пока нет настроенных эффектов"}
+                </p>
               </div>
               <span className="rule-count">{readyRules}</span>
             </div>
             {readyRules ? (
               <div className="mini-rule-list">
-                {props.config.rules.filter((rule) => rule.enabled && rule.mediaId).slice(0, 4).map((rule) => {
-                  const media = props.config.media.find((item) => item.id === rule.mediaId)
-                  return (
-                    <button key={rule.id} onClick={() => props.onNavigate('rules')} className="mini-rule">
-                      <span className="mini-thumb">{media ? <MediaPreview asset={media} alt="" /> : <Sparkles />}</span>
-                      <span><strong>{rule.name}</strong><small>{media?.name}</small></span>
-                      <ArrowRight aria-hidden="true" />
-                    </button>
-                  )
-                })}
+                {props.config.rules
+                  .filter((rule) => rule.enabled && rule.mediaId)
+                  .slice(0, 4)
+                  .map((rule) => {
+                    const media = props.config.media.find(
+                      (item) => item.id === rule.mediaId,
+                    );
+                    return (
+                      <button
+                        key={rule.id}
+                        onClick={() => props.onNavigate("rules")}
+                        className="mini-rule"
+                      >
+                        <span className="mini-thumb">
+                          {media ? (
+                            <MediaPreview asset={media} alt="" />
+                          ) : (
+                            <Sparkles />
+                          )}
+                        </span>
+                        <span>
+                          <strong>{rule.name}</strong>
+                          <small>{media?.name}</small>
+                        </span>
+                        <ArrowRight aria-hidden="true" />
+                      </button>
+                    );
+                  })}
               </div>
             ) : (
               <div className="rail-empty">
-                <span><Sparkles /></span>
+                <span>
+                  <Sparkles />
+                </span>
                 <p>Пока тихо. Добавим мем?</p>
-                <button className="text-button" onClick={() => props.onNavigate('rules')}>Создать эффект <ArrowRight /></button>
+                <button
+                  className="text-button"
+                  onClick={() => props.onNavigate("rules")}
+                >
+                  Создать эффект <ArrowRight />
+                </button>
               </div>
             )}
           </section>
           <section className="quick-start">
             <h2>Что дальше?</h2>
-            <button onClick={() => props.onNavigate('media')}>
-              <span><ImagePlus /></span>
-              <div><strong>Добавить мем</strong><small>Картинка, GIF или видео</small></div>
+            <button onClick={() => props.onNavigate("media")}>
+              <span>
+                <ImagePlus />
+              </span>
+              <div>
+                <strong>Добавить мем</strong>
+                <small>Картинка, GIF или видео</small>
+              </div>
             </button>
-            <button onClick={() => props.onNavigate('gestures')}>
-              <span><Hand /></span>
-              <div><strong>Записать движение</strong><small>Рука, поза или связка</small></div>
+            <button onClick={() => props.onNavigate("gestures")}>
+              <span>
+                <Hand />
+              </span>
+              <div>
+                <strong>Записать движение</strong>
+                <small>Рука, поза или связка</small>
+              </div>
             </button>
           </section>
         </aside>
       </div>
     </div>
-  )
+  );
 }

@@ -13,7 +13,10 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
   const lastPoseInferenceRef = useRef(0)
   const poseHistoryRef = useRef<number[][]>([])
   const customGesturesRef = useRef(customGestures)
-  const [status, setStatus] = useState<CameraStatus>({ phase: 'idle', message: 'Камера выключена' })
+  const [status, setStatus] = useState<CameraStatus>({
+    phase: "idle",
+    message: "Предпросмотр камеры выключен",
+  });
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [readings, setReadings] = useState<GestureReading[]>([])
   const [hands, setHands] = useState<{ landmarks: Point3D[]; handedness: GestureReading['handedness'] }[]>([])
@@ -76,7 +79,7 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
     setReadings([])
     setHands([])
     setPoses([])
-    setStatus({ phase: 'idle', message: 'Камера выключена' })
+    setStatus({ phase: "idle", message: "Предпросмотр камеры выключен" });
   }, [])
 
   const startCamera = useCallback(async () => {

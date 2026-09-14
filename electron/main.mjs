@@ -16,13 +16,13 @@ let mainWindow
 let outputWindow
 let latestFrame = ''
 let updateCheckTimer
-let updateDemoTimer
+let updateDemo
 let currentCheckIsAutomatic = false
 let notifiedAvailableVersion = ''
 let notifiedDownloadedVersion = ''
 let updaterState = { phase: 'idle', currentVersion: app.getVersion() }
 
-const isDev = Boolean(process.env.VITE_DEV_SERVER_URL)
+const isDev = !app.isPackaged && Boolean(process.env.VITE_DEV_SERVER_URL)
 const isUpdateDemo = isDev && process.env.SLAYCAM_UPDATE_DEMO === '1'
 const updatesSupported = () => app.isPackaged && process.platform === 'win32'
 const configPath = () => join(app.getPath('userData'), 'slaycam.config.json')
@@ -86,38 +86,6 @@ function sendUpdaterState(next) {
   return updaterState
 }
 
-function demoAvailableState() {
-  return {
-    phase: 'available',
-    currentVersion: '0.1.0',
-    version: '0.1.1',
-    releaseName: 'SlayCam 0.1.1',
-    notes: 'GIF больше не зацикливаются от одного жеста, а движения ловятся точнее.',
-    automatic: false,
-    percent: 0,
-    message: '',
-    demo: true,
-  }
-}
-
-function downloadDemoUpdate() {
-  if (updateDemoTimer) clearInterval(updateDemoTimer)
-  const steps = [6, 14, 25, 39, 52, 68, 81, 92, 100]
-  let step = 0
-  sendUpdaterState({ ...updaterState, phase: 'downloading', percent: 0, automatic: false, demo: true })
-  updateDemoTimer = setInterval(() => {
-    const percent = steps[step++]
-    if (percent < 100) {
-      sendUpdaterState({ ...updaterState, phase: 'downloading', percent, demo: true })
-      return
-    }
-    clearInterval(updateDemoTimer)
-    updateDemoTimer = undefined
-    sendUpdaterState({ ...updaterState, phase: 'downloaded', percent: 100, demo: true })
-  }, 650)
-  return updaterState
-}
-
 function showUpdateNotification(title, body) {
   if (!Notification.isSupported()) return
   const notification = new Notification({
@@ -134,8 +102,7 @@ function showUpdateNotification(title, body) {
 
 async function checkForUpdates(automatic = false) {
   if (isUpdateDemo) {
-    sendUpdaterState({ ...updaterState, phase: 'checking', automatic: false, demo: true })
-    setTimeout(() => sendUpdaterState(demoAvailableState()), 900)
+    updateDemo?.check()
     return updaterState
   }
   if (!updatesSupported()) {
@@ -154,9 +121,11 @@ async function checkForUpdates(automatic = false) {
   return updaterState
 }
 
-function setupAutoUpdater() {
+async function setupAutoUpdater() {
   if (isUpdateDemo) {
-    setTimeout(() => sendUpdaterState(demoAvailableState()), 700)
+    const { createUpdateDemo } = await import('./update-demo.mjs')
+    updateDemo = createUpdateDemo(sendUpdaterState)
+    updateDemo.setup()
     return
   }
   if (!updatesSupported()) {
@@ -244,7 +213,7 @@ app.whenReady().then(async () => {
     callback(permission === 'media')
   })
   await createMainWindow()
-  setupAutoUpdater()
+  await setupAutoUpdater()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
   })
@@ -256,7 +225,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   if (updateCheckTimer) clearInterval(updateCheckTimer)
-  if (updateDemoTimer) clearInterval(updateDemoTimer)
+  updateDemo?.dispose()
 })
 
 ipcMain.handle('config:load', async () => {
@@ -333,7 +302,10 @@ ipcMain.handle('external:open', async (_event, url) => {
 ipcMain.handle('updater:get-state', () => updaterState)
 ipcMain.handle('updater:check', () => checkForUpdates(false))
 ipcMain.handle('updater:download', async () => {
-  if (isUpdateDemo && updaterState.phase === 'available') return downloadDemoUpdate()
+  if (isUpdateDemo && updaterState.phase === 'available') {
+    updateDemo?.download(updaterState)
+    return updaterState
+  }
   if (!updatesSupported() || updaterState.phase !== 'available') return updaterState
   currentCheckIsAutomatic = false
   sendUpdaterState({ phase: 'downloading', percent: 0, automatic: false, message: '' })
@@ -346,7 +318,7 @@ ipcMain.handle('updater:download', async () => {
 })
 ipcMain.handle('updater:install', () => {
   if (isUpdateDemo && updaterState.phase === 'downloaded') {
-    sendUpdaterState({ phase: 'not-available', currentVersion: updaterState.version ?? '0.1.1', demo: true })
+    updateDemo?.install(updaterState)
     return true
   }
   if (!updatesSupported() || updaterState.phase !== 'downloaded') return false

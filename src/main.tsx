@@ -4,7 +4,7 @@ import App from './App'
 import type { UpdateState } from './update'
 import './styles.css'
 
-if (!window.slaycam) {
+if (import.meta.env.DEV && !window.slaycam) {
   const updateListeners = new Set<(state: UpdateState) => void>()
   let updateTimer: number | undefined
   let previewUpdateState: UpdateState = {

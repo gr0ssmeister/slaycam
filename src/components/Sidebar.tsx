@@ -23,7 +23,7 @@ export function Sidebar({ page, onChange }: { page: PageId; onChange: (page: Pag
             data-active={page === id}
             onClick={() => onChange(id)}
             aria-label={label}
-            aria-current={page === id ? 'page' : undefined}
+            aria-current={page === id ? "page" : undefined}
           >
             <Icon aria-hidden="true" />
             <span>{label}</span>
@@ -31,10 +31,19 @@ export function Sidebar({ page, onChange }: { page: PageId; onChange: (page: Pag
         ))}
       </nav>
       <div className="sidebar-tip">
-        <span className="tip-star" aria-hidden="true">✦</span>
+        <span className="tip-star" aria-hidden="true">
+          ✦
+        </span>
         <p>SlayCam для слейных</p>
       </div>
-      <div className="sidebar-signature">by grossmeister</div>
+      <a
+        href="https://t.me/sovsemdebil"
+        className="sidebar-signature"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        by grossmeister
+      </a>
     </aside>
-  )
+  );
 }

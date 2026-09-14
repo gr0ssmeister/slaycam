@@ -2,6 +2,14 @@ import type { MediaAsset, SlayCamConfig } from './types'
 import type { UpdateState } from './update'
 
 declare global {
+  interface ImportMetaEnv {
+    readonly DEV: boolean
+  }
+
+  interface ImportMeta {
+    readonly env: ImportMetaEnv
+  }
+
   interface Window {
     slaycam: {
       loadConfig(): Promise<SlayCamConfig | null>

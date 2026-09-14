@@ -1,12 +1,17 @@
-import { Camera, CheckCircle2, ExternalLink, MonitorUp, RefreshCw, ShieldCheck } from 'lucide-react'
+import { Camera, CheckCircle2, Download, ExternalLink, PackageCheck, MonitorUp, RefreshCw, ShieldCheck } from 'lucide-react'
 import type { AppSettings } from '../types'
+import type { UpdateState } from '../update'
 
-export function SettingsPage({ settings, devices, onChange, onRefreshDevices, onOpenOutput }: {
+export function SettingsPage({ settings, devices, updateState, onChange, onRefreshDevices, onOpenOutput, onCheckUpdates, onDownloadUpdate, onInstallUpdate }: {
   settings: AppSettings
   devices: MediaDeviceInfo[]
+  updateState: UpdateState
   onChange: (settings: AppSettings) => void
   onRefreshDevices: () => void
   onOpenOutput: () => void
+  onCheckUpdates: () => void
+  onDownloadUpdate: () => void
+  onInstallUpdate: () => void
 }) {
   const patch = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value })
   return (
@@ -46,9 +51,46 @@ export function SettingsPage({ settings, devices, onChange, onRefreshDevices, on
             <Toggle checked={settings.showFps} onChange={(value) => patch('showFps', value)} label="Показывать FPS" hint="Помогает заметить нагрузку" />
           </div>
         </section>
+
+        <section className="settings-section update-settings">
+          <div className="settings-title"><span><PackageCheck /></span><div><h2 className="update-title">Обновления {updateState.demo && <em>Демо</em>}</h2><p>{updateState.currentVersion ? `Сейчас стоит ${updateState.currentVersion}` : 'Версия SlayCam'}</p></div></div>
+          <div className="update-settings-row">
+            <div>
+              <strong>{updateStatusTitle(updateState)}</strong>
+              <small>{updateStatusHint(updateState)}</small>
+            </div>
+            {updateState.phase === 'available' ? (
+              <button className="button primary" onClick={onDownloadUpdate}><Download />Скачать {updateState.version}</button>
+            ) : updateState.phase === 'downloaded' ? (
+              <button className="button primary" onClick={onInstallUpdate}><RefreshCw />Перезапустить</button>
+            ) : (
+              <button className="button secondary" onClick={onCheckUpdates} disabled={updateState.phase === 'checking' || updateState.phase === 'downloading'}><RefreshCw data-spinning={updateState.phase === 'checking'} />{updateState.phase === 'checking' ? 'Проверяем' : updateState.phase === 'downloading' ? `${Math.round(updateState.percent ?? 0)}%` : 'Проверить'}</button>
+            )}
+          </div>
+          {updateState.phase === 'downloading' && <div className="settings-update-progress" role="progressbar" aria-label="Загрузка обновления" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(updateState.percent ?? 0)}><span style={{ transform: `scaleX(${(updateState.percent ?? 0) / 100})` }} /></div>}
+        </section>
       </div>
     </div>
   )
+}
+
+function updateStatusTitle(state: UpdateState) {
+  if (state.phase === 'available') return `Версия ${state.version} уже тут`
+  if (state.phase === 'downloading') return `Качаем версию ${state.version ?? ''}`
+  if (state.phase === 'downloaded') return `Версия ${state.version} готова к установке`
+  if (state.phase === 'checking') return 'Ищем свежую версию'
+  if (state.phase === 'error') return 'Не удалось проверить обновления'
+  if (state.phase === 'unsupported') return 'Проверка включится после установки на Windows'
+  return 'Установлена свежая версия'
+}
+
+function updateStatusHint(state: UpdateState) {
+  if (state.phase === 'available') return 'Настройки и медиатека останутся на месте.'
+  if (state.phase === 'downloading') return 'Можно продолжать пользоваться SlayCam.'
+  if (state.phase === 'downloaded') return 'Установка займёт несколько секунд.'
+  if (state.phase === 'error') return 'Проверь интернет и повтори попытку.'
+  if (state.phase === 'unsupported') return 'В режиме разработки обновлятор не запускается.'
+  return 'SlayCam проверяет GitHub автоматически.'
 }
 
 function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange: (value: boolean) => void; label: string; hint: string }) {

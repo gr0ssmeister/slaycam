@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Sidebar, type PageId } from './components/Sidebar'
 import { Onboarding } from './components/Onboarding'
 import { OutputView } from './components/OutputView'
+import { UpdateNotice } from './components/UpdateNotice'
 import { StudioPage } from './pages/StudioPage'
 import { MediaPage } from './pages/MediaPage'
 import { GesturesPage } from './pages/GesturesPage'
@@ -13,6 +14,7 @@ import { useVision } from './hooks/useVision'
 import { MediaBank, drawLandmarks, drawScene } from './lib/compositor'
 import { readingMatchesRule, RuleEngine } from './lib/gestures'
 import type { ActiveEffect, CustomGesture, EffectRule, MediaAsset, SlayCamConfig } from './types'
+import { INITIAL_UPDATE_STATE, type UpdateState } from './update'
 
 const isOutput = new URLSearchParams(window.location.search).has('output')
 
@@ -28,6 +30,7 @@ function SlayCamApp() {
   const [selectedRuleId, setSelectedRuleId] = useState('')
   const [activeEffects, setActiveEffects] = useState<ActiveEffect[]>([])
   const [renderFps, setRenderFps] = useState(0)
+  const [updateState, setUpdateState] = useState<UpdateState>(INITIAL_UPDATE_STATE)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const engineRef = useRef(new RuleEngine())
   const mediaBankRef = useRef(new MediaBank())
@@ -56,6 +59,11 @@ function SlayCamApp() {
   useEffect(() => window.slaycam.onOutputState((isOpen) => {
     setConfig((current) => ({ ...current, settings: { ...current.settings, outputWindowOpen: isOpen } }))
   }), [])
+
+  useEffect(() => {
+    void window.slaycam.getUpdateState().then(setUpdateState)
+    return window.slaycam.onUpdateState(setUpdateState)
+  }, [])
 
   const addEffect = (rule: EffectRule, landmarks = vision.hands[0]?.landmarks ?? vision.poses[0] ?? [], handedness = vision.hands[0]?.handedness ?? 'Unknown') => {
     if (!rule.mediaId) return
@@ -175,8 +183,8 @@ function SlayCamApp() {
     if (page === 'media') return <MediaPage media={config.media} onImport={importMedia} onRemove={removeMedia} />
     if (page === 'gestures') return <GesturesPage gestures={config.gestures} videoRef={vision.videoRef} hands={vision.hands} poses={vision.poses} mirrorCamera={config.settings.mirrorCamera} cameraReady={vision.status.phase === 'ready'} cameraStatus={vision.status} onStartCamera={vision.startCamera} onAdd={addGesture} onChange={updateGesture} onRemove={removeGesture} />
     if (page === 'rules') return <RulesPage rules={config.rules} media={config.media} gestures={config.gestures} selectedId={selectedRuleId} onSelect={setSelectedRuleId} onCreate={createEffect} onImport={importMedia} onRecordGesture={() => setPage('gestures')} onChange={updateRule} onDuplicate={duplicateRule} onDelete={deleteRule} onTest={(rule) => { addEffect(rule); setPage('studio') }} />
-    return <SettingsPage settings={config.settings} devices={vision.devices} onChange={(settings) => setConfig((current) => ({ ...current, settings }))} onRefreshDevices={vision.refreshDevices} onOpenOutput={openOutput} />
-  }, [activeEffects, config, page, selectedRuleId, vision])
+    return <SettingsPage settings={config.settings} devices={vision.devices} updateState={updateState} onChange={(settings) => setConfig((current) => ({ ...current, settings }))} onRefreshDevices={vision.refreshDevices} onOpenOutput={openOutput} onCheckUpdates={() => void window.slaycam.checkForUpdates()} onDownloadUpdate={() => void window.slaycam.downloadUpdate()} onInstallUpdate={() => void window.slaycam.installUpdate()} />
+  }, [activeEffects, config, page, selectedRuleId, updateState, vision])
 
   if (!loaded) return <div className="app-loading"><span className="loading-flower" />Загружаем SlayCam</div>
   return (
@@ -184,6 +192,7 @@ function SlayCamApp() {
       <video ref={vision.videoRef} className="source-video" playsInline muted aria-hidden="true" />
       <Sidebar page={page} onChange={setPage} />
       <main className="app-main" tabIndex={-1}>{pageContent}</main>
+      <UpdateNotice state={updateState} onDownload={() => void window.slaycam.downloadUpdate()} onInstall={() => void window.slaycam.installUpdate()} />
       {!config.settings.onboardingComplete && <Onboarding onFinish={() => setConfig((current) => ({ ...current, settings: { ...current.settings, onboardingComplete: true } }))} />}
       <div className="sr-live" aria-live="polite" />
     </div>

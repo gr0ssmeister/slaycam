@@ -17,6 +17,7 @@ SlayCam is a Windows desktop app that triggers camera overlays from built-in ges
 - Autosaved media library, rules, gestures, and settings.
 - Separate `SlayCam Output` window for OBS Window Capture.
 - Russian assisted NSIS installer with SlayCam artwork, Start menu entry, and desktop shortcut.
+- GitHub Releases auto-updater with download progress and restart-to-install flow.
 
 ## Development
 
@@ -40,6 +41,24 @@ npm run build:win
 ```
 
 The installer is written to `release/SlayCam-Setup-0.1.0.exe`.
+
+## Release on GitHub
+
+The repository publishes Windows releases when a version tag is pushed. Update the version and push its tag:
+
+```bash
+npm version patch
+git push origin main --follow-tags
+```
+
+GitHub Actions runs the checks, creates the signed or unsigned NSIS installer, and uploads the installer, blockmap, and `latest.yml` to GitHub Releases. Installed Windows copies of SlayCam check that release feed automatically.
+
+For Authenticode signing, add these repository secrets in **Settings → Secrets and variables → Actions**:
+
+- `WIN_CSC_LINK`: a base64-encoded `.pfx` certificate or a private HTTPS certificate URL supported by electron-builder.
+- `WIN_CSC_KEY_PASSWORD`: the certificate password.
+
+Without a trusted code-signing certificate, GitHub can distribute updates but cannot remove the Windows SmartScreen “unknown publisher” warning.
 
 ## Discord, Meet, and Zoom
 

@@ -457,6 +457,34 @@ svg { width: 20px; height: 20px; stroke-width: 2; }
 .output-settings .button.secondary { background: transparent; border-color: oklch(0.63 0.09 345); color: oklch(0.98 0 0); }
 .autosave-state { display: inline-flex; align-items: center; gap: 7px; color: var(--success); font-size: 0.78rem; font-weight: 800; }
 .autosave-state svg { width: 18px; }
+.update-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 54px; }
+.update-title { display: flex; align-items: center; gap: 7px; }
+.update-title em { padding: 3px 7px; border-radius: 999px; background: var(--honey-soft); color: oklch(0.4 0.1 54); font-size: 0.61rem; font-style: normal; font-weight: 850; }
+.update-settings-row > div { min-width: 0; }
+.update-settings-row strong, .update-settings-row small { display: block; }
+.update-settings-row strong { font-size: 0.84rem; }
+.update-settings-row small { margin-top: 4px; color: var(--ink-soft); font-size: 0.72rem; }
+.update-settings-row .button { flex: 0 0 auto; }
+.update-settings-row svg[data-spinning="true"] { animation: spin 900ms linear infinite; }
+.settings-update-progress, .update-progress { height: 6px; overflow: hidden; border-radius: 999px; background: var(--surface-strong); }
+.settings-update-progress { margin-top: 14px; }
+.settings-update-progress span, .update-progress span { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--primary); transform-origin: left; transition: transform 180ms var(--ease); }
+
+.update-notice { position: fixed; z-index: 40; right: 22px; bottom: 22px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 34px; align-items: start; gap: 11px; width: min(420px, calc(100vw - 44px)); padding: 15px; border-radius: 14px; background: var(--berry); color: oklch(0.98 0.01 350); box-shadow: 0 8px 20px oklch(0.25 0.08 340 / 0.24); animation: update-notice-in 220ms var(--ease); }
+.update-notice[data-phase="error"] { background: oklch(0.39 0.15 25); }
+.update-notice-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: var(--primary); color: oklch(0.99 0 0); }
+.update-notice[data-phase="downloaded"] .update-notice-icon { background: var(--honey); color: oklch(0.31 0.08 52); }
+.update-notice-copy { min-width: 0; padding-top: 2px; }
+.update-notice-copy > strong { display: block; font-size: 0.88rem; }
+.update-notice-copy > p { display: -webkit-box; margin-top: 4px; overflow: hidden; color: oklch(0.84 0.035 350); font-size: 0.72rem; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.update-notice-actions { margin-top: 12px; }
+.update-notice-actions .button { min-height: 38px; padding-inline: 14px; font-size: 0.76rem; box-shadow: none; }
+.update-notice-close { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: oklch(0.85 0.035 350); }
+.update-notice-close:hover { background: oklch(1 0 0 / 0.1); color: oklch(1 0 0); }
+.update-notice-close svg { width: 17px; height: 17px; }
+.update-progress { margin-top: 11px; background: oklch(1 0 0 / 0.16); }
+.update-progress span { background: var(--honey); }
+@keyframes update-notice-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } }
 
 .onboarding-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 24px; background: oklch(0.18 0.04 340 / 0.66); backdrop-filter: blur(10px); }
 .onboarding { position: relative; width: min(580px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 30px 34px 32px; border-radius: 16px; background: var(--surface); box-shadow: 0 24px 70px oklch(0.2 0.07 340 / 0.3); }
@@ -515,6 +543,8 @@ svg { width: 20px; height: 20px; stroke-width: 2; }
   .tracking-hud > span:last-child { display: none; }
   .gesture-row { grid-template-columns: 46px minmax(0, 1fr) 42px; }
   .gesture-icon { width: 44px; height: 44px; }
+  .update-settings-row { align-items: stretch; flex-direction: column; }
+  .update-settings-row .button { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

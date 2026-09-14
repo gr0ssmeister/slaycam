@@ -16,6 +16,7 @@ export function MediaPreview({ asset, className = '', alt, animated = true }: {
   useEffect(() => {
     const video = videoRef.current
     if (!video || !animated) return
+    video.currentTime = 0
     void video.play().catch(() => undefined)
   }, [animated, asset?.id])
 
@@ -36,7 +37,12 @@ export function MediaPreview({ asset, className = '', alt, animated = true }: {
         loop
         autoPlay={animated}
         playsInline
-        preload="metadata"
+        preload="auto"
+        controls={false}
+        disablePictureInPicture
+        onCanPlay={(event) => {
+          if (animated) void event.currentTarget.play().catch(() => undefined)
+        }}
         onError={() => setFailed(true)}
       />
     )

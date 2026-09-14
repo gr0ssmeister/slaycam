@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gestureDistance, matchCustomGesture, matchCustomPose, matchMotionGesture, motionEnergy, normalizeLandmarks, normalizePoseLandmarks, RuleEngine } from './gestures'
+import { gestureDistance, matchCustomEmotion, matchCustomGesture, matchCustomPose, matchCustomTwoHandGesture, matchMotionGesture, motionEnergy, normalizeLandmarks, normalizePoseLandmarks, normalizeTwoHandLandmarks, RuleEngine } from './gestures'
 
 const hand = Array.from({ length: 21 }, (_, index) => ({
   x: 0.4 + index * 0.01,
@@ -20,6 +20,14 @@ describe('gesture normalization', () => {
     expect(result?.id).toBe('custom-heart')
     expect(result?.score).toBeGreaterThan(0.9)
   })
+
+  it('recognizes a two-hand sample only when both hands are visible', () => {
+    const secondHand = hand.map((point) => ({ ...point, x: point.x + 0.3, y: point.y - 0.05 }))
+    const gesture = { id: 'heart', name: 'Сердце', samples: [normalizeTwoHandLandmarks([hand, secondHand])], threshold: 0.22, tracking: 'two-hands' as const, createdAt: '' }
+    const moved = [hand, secondHand].map((points) => points.map((point) => ({ x: point.x * 1.3 + 0.08, y: point.y * 1.3 - 0.04, z: point.z * 1.3 })))
+    expect(matchCustomTwoHandGesture(moved.reverse(), [gesture])?.id).toBe('heart')
+    expect(matchCustomTwoHandGesture([moved[0]], [gesture])).toBeNull()
+  })
 })
 
 describe('pose and motion matching', () => {
@@ -36,6 +44,15 @@ describe('pose and motion matching', () => {
     const gesture = { id: 'wave', name: 'Взмах', samples: sequence, threshold: 0.12, tracking: 'motion' as const, motionEnergy: motionEnergy(sequence), createdAt: '' }
     expect(matchMotionGesture(sequence, [gesture])?.id).toBe('wave')
     expect(matchMotionGesture(Array(18).fill(sequence[0]), [gesture])).toBeNull()
+  })
+})
+
+describe('recorded emotion matching', () => {
+  it('matches a close facial blendshape sample', () => {
+    const sample = [0.1, 0.82, 0.04, 0.65]
+    const result = matchCustomEmotion([0.12, 0.79, 0.05, 0.69], [{ id: 'my-smile', name: 'Моя улыбка', samples: [sample], threshold: 0.1, tracking: 'emotion', createdAt: '' }])
+    expect(result?.id).toBe('my-smile')
+    expect(matchCustomEmotion([0.8, 0.1, 0.7, 0.05], [{ id: 'my-smile', name: 'Моя улыбка', samples: [sample], threshold: 0.1, tracking: 'emotion', createdAt: '' }])).toBeNull()
   })
 })
 

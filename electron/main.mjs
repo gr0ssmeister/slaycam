@@ -13,8 +13,6 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 let mainWindow
-let outputWindow
-let latestFrame = ''
 let updateCheckTimer
 let updateDemo
 let currentCheckIsAutomatic = false
@@ -62,6 +60,8 @@ async function createMainWindow() {
     minHeight: 720,
     backgroundColor: '#f4edf2',
     title: 'SlayCam',
+    frame: false,
+    icon: join(app.getAppPath(), isDev ? 'public/brand-icon.png' : 'dist/brand-icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(app.getAppPath(), 'electron/preload.cjs'),
@@ -70,6 +70,8 @@ async function createMainWindow() {
       sandbox: true,
     },
   })
+  mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true))
+  mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized', false))
   await mainWindow.loadURL(rendererUrl())
 }
 
@@ -174,36 +176,6 @@ async function setupAutoUpdater() {
   updateCheckTimer = setInterval(() => void checkForUpdates(true), 4 * 60 * 60 * 1000)
 }
 
-async function createOutputWindow() {
-  if (outputWindow && !outputWindow.isDestroyed()) {
-    outputWindow.show()
-    outputWindow.focus()
-    return
-  }
-  outputWindow = new BrowserWindow({
-    width: 1280,
-    height: 720,
-    minWidth: 640,
-    minHeight: 360,
-    backgroundColor: '#000000',
-    title: 'SlayCam Output',
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: join(app.getAppPath(), 'electron/preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-  await outputWindow.loadURL(rendererUrl('?output=1'))
-  mainWindow?.webContents.send('output:state', true)
-  if (latestFrame) outputWindow.webContents.send('output:frame', latestFrame)
-  outputWindow.on('closed', () => {
-    outputWindow = undefined
-    mainWindow?.webContents.send('output:state', false)
-  })
-}
-
 app.whenReady().then(async () => {
   app.setAppUserModelId('by.grossmeister.slaycam')
   await mkdir(mediaPath(), { recursive: true })
@@ -278,24 +250,30 @@ ipcMain.handle('media:remove', async (_event, storedName) => {
   return true
 })
 
-ipcMain.handle('output:open', async () => {
-  await createOutputWindow()
-  return true
-})
-
-ipcMain.handle('output:close', async () => {
-  outputWindow?.close()
-  return true
-})
-
-ipcMain.on('output:frame', (_event, frame) => {
-  latestFrame = frame
-  if (outputWindow && !outputWindow.isDestroyed()) outputWindow.webContents.send('output:frame', frame)
-})
-
 ipcMain.handle('external:open', async (_event, url) => {
   if (typeof url !== 'string' || !url.startsWith('https://')) return false
   await shell.openExternal(url)
+  return true
+})
+
+function senderWindow(event) {
+  return BrowserWindow.fromWebContents(event.sender)
+}
+
+ipcMain.handle('window:minimize', (event) => {
+  senderWindow(event)?.minimize()
+  return true
+})
+ipcMain.handle('window:toggle-maximize', (event) => {
+  const window = senderWindow(event)
+  if (!window) return false
+  if (window.isMaximized()) window.unmaximize()
+  else window.maximize()
+  return window.isMaximized()
+})
+ipcMain.handle('window:is-maximized', (event) => senderWindow(event)?.isMaximized() ?? false)
+ipcMain.handle('window:close', (event) => {
+  senderWindow(event)?.close()
   return true
 })
 

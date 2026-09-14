@@ -4,11 +4,12 @@ import { createRule } from '../config'
 import { MediaPreview } from '../components/MediaPreview'
 import { MediaSelect } from '../components/MediaSelect'
 import { GestureSelect } from '../components/GestureSelect'
+import { EmotionSelect } from '../components/EmotionSelect'
 import { CustomGesturePreview, CustomGestureSelect } from '../components/CustomGestureSelect'
 import { ANIMATION_OPTIONS, AnimationPicker } from '../components/AnimationPicker'
 import { findDuplicateRule } from '../lib/rules'
 import type { EffectRule, MediaAsset, CustomGesture, TriggerType } from '../types'
-import { ANCHORS, BUILT_IN_GESTURES } from '../types'
+import { ANCHORS, BUILT_IN_EMOTIONS, BUILT_IN_GESTURES } from '../types'
 
 export function RulesPage({
   rules,
@@ -128,6 +129,7 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
 }) {
   const [triggerType, setTriggerType] = useState<TriggerType>('built-in')
   const [gesture, setGesture] = useState('Thumb_Up')
+  const [emotion, setEmotion] = useState('smile')
   const [customGestureId, setCustomGestureId] = useState(gestures[0]?.id ?? '')
   const [mediaId, setMediaId] = useState(media[0]?.id ?? '')
   const [anchor, setAnchor] = useState<EffectRule['anchor']>('gesture-hand')
@@ -137,10 +139,13 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
   const [nameTouched, setNameTouched] = useState(false)
   const selectedMedia = media.find((item) => item.id === mediaId)
   const selectedBuiltInGesture = BUILT_IN_GESTURES.find((item) => item.value === gesture)
+  const selectedEmotion = BUILT_IN_EMOTIONS.find((item) => item.value === emotion)
   const triggerLabel = triggerType === 'built-in'
     ? selectedBuiltInGesture ? `${selectedBuiltInGesture.emoji} ${selectedBuiltInGesture.label}` : 'Готовый жест'
-    : getCustomGestureLabel(gestures.find((item) => item.id === customGestureId))
-  const triggerName = triggerType === 'built-in' ? selectedBuiltInGesture?.label ?? 'Готовый жест' : triggerLabel
+    : triggerType === 'emotion'
+      ? `${selectedEmotion?.emoji ?? '🙂'} ${selectedEmotion?.label ?? 'Эмоция'}`
+      : getCustomGestureLabel(gestures.find((item) => item.id === customGestureId))
+  const triggerName = triggerType === 'built-in' ? selectedBuiltInGesture?.label ?? 'Готовый жест' : triggerType === 'emotion' ? selectedEmotion?.label ?? 'Эмоция' : triggerLabel
   const suggestedName = selectedMedia ? `${selectedMedia.name.replace(/\.[^.]+$/, '')} · ${triggerName}` : ''
 
   useEffect(() => {
@@ -155,15 +160,16 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
     if (!nameTouched) setName(suggestedName)
   }, [nameTouched, suggestedName])
 
-  const duplicate = useMemo(() => findDuplicateRule(rules, { mediaId, triggerType, gesture, customGestureId }), [customGestureId, gesture, mediaId, rules, triggerType])
+  const triggerValue = triggerType === 'emotion' ? emotion : gesture
+  const duplicate = useMemo(() => findDuplicateRule(rules, { mediaId, triggerType, gesture: triggerValue, customGestureId }), [customGestureId, mediaId, rules, triggerType, triggerValue])
 
-  const canCreate = Boolean(name.trim() && mediaId && (triggerType === 'built-in' ? gesture : customGestureId))
+  const canCreate = Boolean(name.trim() && mediaId && (triggerType === 'custom' ? customGestureId : triggerValue))
   const submit = () => {
     if (!canCreate || duplicate) return
     const rule = createRule(mediaId)
     rule.name = name.trim()
     rule.triggerType = triggerType
-    rule.gesture = gesture
+    rule.gesture = triggerValue
     rule.customGestureId = triggerType === 'custom' ? customGestureId : undefined
     rule.anchor = anchor
     rule.durationMs = durationMs
@@ -178,13 +184,16 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
       <div className="composer-layout">
         <div className="composer-fields">
           <fieldset className="composer-section">
-            <legend><span>1</span><div><strong>Что запускает эффект</strong><small>Готовый жест или твоя запись</small></div></legend>
+            <legend><span>1</span><div><strong>Что запускает эффект</strong><small>Жест, твоя запись или выражение лица</small></div></legend>
             <div className="segmented-control" aria-label="Тип триггера">
               <button type="button" data-active={triggerType === 'built-in'} onClick={() => setTriggerType('built-in')}>Готовый жест</button>
               <button type="button" data-active={triggerType === 'custom'} onClick={() => setTriggerType('custom')}>Мой триггер</button>
+              <button type="button" data-active={triggerType === 'emotion'} onClick={() => setTriggerType('emotion')}>Эмоция</button>
             </div>
             {triggerType === 'built-in' ? (
               <div className="field"><span>Выбери жест</span><GestureSelect value={gesture} onChange={setGesture} /></div>
+            ) : triggerType === 'emotion' ? (
+              <div className="field"><span>Выбери выражение лица</span><EmotionSelect value={emotion} onChange={setEmotion} /></div>
             ) : gestures.length ? (
               <div className="field"><span>Выбери запись</span><CustomGestureSelect gestures={gestures} value={customGestureId} onChange={setCustomGestureId} /></div>
             ) : (
@@ -217,7 +226,7 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
 
         <aside className="composer-summary">
           <h3>Получится так</h3>
-          <div className="composer-equation"><span className="composer-trigger-preview">{triggerType === 'built-in' ? selectedBuiltInGesture?.emoji ?? <Sparkles /> : <CustomGesturePreview gesture={gestures.find((item) => item.id === customGestureId)} />}</span><strong>{triggerLabel}</strong><ArrowRight /><span className="composer-summary-media">{selectedMedia ? <MediaPreview asset={selectedMedia} alt="" /> : <ImagePlus />}</span><strong>{selectedMedia?.name ?? 'Выбери мем'}</strong></div>
+          <div className="composer-equation"><span className="composer-trigger-preview">{triggerType === 'built-in' ? selectedBuiltInGesture?.emoji ?? <Sparkles /> : triggerType === 'emotion' ? selectedEmotion?.emoji ?? '🙂' : <CustomGesturePreview gesture={gestures.find((item) => item.id === customGestureId)} />}</span><strong>{triggerLabel}</strong><ArrowRight /><div className="composer-result-media"><span className="composer-summary-media">{selectedMedia ? <MediaPreview asset={selectedMedia} alt="" /> : <ImagePlus />}</span><strong className="composer-media-name">{selectedMedia?.name ?? 'Выбери мем'}</strong></div></div>
           <dl><div><dt>Положение</dt><dd>{ANCHORS.find((item) => item.value === anchor)?.icon} {ANCHORS.find((item) => item.value === anchor)?.label}</dd></div><div><dt>Появление</dt><dd>{ANIMATION_OPTIONS.find((item) => item.value === animation)?.label}</dd></div><div><dt>Длительность</dt><dd>{(durationMs / 1000).toLocaleString('ru-RU')} сек</dd></div></dl>
           {duplicate && <div className="duplicate-notice"><strong>Такая связка уже есть</strong><span>{duplicate.name}</span></div>}
           {duplicate ? <button className="button primary" onClick={() => onOpenExisting(duplicate.id)}>Открыть этот эффект</button> : <button className="button primary" onClick={submit} disabled={!canCreate}><Check />Создать эффект</button>}
@@ -230,7 +239,7 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
 
 function getCustomGestureLabel(gesture?: CustomGesture) {
   if (!gesture) return 'Мой триггер'
-  const kind = gesture.tracking === 'motion' ? 'Движение' : gesture.tracking === 'pose' ? 'Поза' : 'Рука'
+  const kind = gesture.tracking === 'motion' ? 'Движение' : gesture.tracking === 'pose' ? 'Поза' : gesture.tracking === 'emotion' ? 'Эмоция' : gesture.tracking === 'two-hands' ? 'Две руки' : 'Рука'
   return `${kind} · ${gesture.name}`
 }
 
@@ -241,6 +250,10 @@ function getMediaKind(asset: MediaAsset) {
 
 function getRuleTriggerLabel(rule: EffectRule, gestures: CustomGesture[]) {
   if (rule.triggerType === 'custom') return getCustomGestureLabel(gestures.find((item) => item.id === rule.customGestureId))
+  if (rule.triggerType === 'emotion') {
+    const emotion = BUILT_IN_EMOTIONS.find((item) => item.value === rule.gesture)
+    return emotion ? `${emotion.emoji} ${emotion.label}` : rule.gesture
+  }
   const gesture = BUILT_IN_GESTURES.find((item) => item.value === rule.gesture)
   return gesture ? `${gesture.emoji} ${gesture.label}` : rule.gesture
 }
@@ -255,7 +268,9 @@ function RuleEditor({ rule, media, gestures, onChange, onDuplicate, onDelete, on
   onTest: () => void
 }) {
   const patch = <K extends keyof EffectRule>(key: K, value: EffectRule[K]) => onChange({ ...rule, [key]: value })
+  const selectBuiltInTrigger = () => onChange({ ...rule, triggerType: 'built-in', gesture: BUILT_IN_GESTURES.some((gesture) => gesture.value === rule.gesture) ? rule.gesture : 'Thumb_Up', customGestureId: undefined })
   const selectCustomTrigger = () => onChange({ ...rule, triggerType: 'custom', customGestureId: rule.customGestureId ?? gestures[0]?.id })
+  const selectEmotionTrigger = () => onChange({ ...rule, triggerType: 'emotion', gesture: BUILT_IN_EMOTIONS.some((emotion) => emotion.value === rule.gesture) ? rule.gesture : 'smile', customGestureId: undefined })
   return (
     <section className="rule-editor">
       <div className="editor-topbar">
@@ -274,11 +289,14 @@ function RuleEditor({ rule, media, gestures, onChange, onDuplicate, onDelete, on
         <fieldset className="editor-section">
           <legend><span>1</span>Когда включать</legend>
           <div className="segmented-control" aria-label="Тип жеста">
-            <button type="button" data-active={rule.triggerType === 'built-in'} onClick={() => patch('triggerType', 'built-in')}>Готовый жест</button>
+            <button type="button" data-active={rule.triggerType === 'built-in'} onClick={selectBuiltInTrigger}>Готовый жест</button>
             <button type="button" data-active={rule.triggerType === 'custom'} onClick={selectCustomTrigger} disabled={!gestures.length}>Мой триггер</button>
+            <button type="button" data-active={rule.triggerType === 'emotion'} onClick={selectEmotionTrigger}>Эмоция</button>
           </div>
           {rule.triggerType === 'built-in' ? (
             <div className="field"><span>Жест</span><GestureSelect value={rule.gesture} onChange={(gesture) => patch('gesture', gesture)} /></div>
+          ) : rule.triggerType === 'emotion' ? (
+            <div className="field"><span>Выражение лица</span><EmotionSelect value={rule.gesture} onChange={(emotion) => patch('gesture', emotion)} /></div>
           ) : (
             <div className="field"><span>Мой триггер</span><CustomGestureSelect gestures={gestures} value={rule.customGestureId ?? ''} onChange={(gestureId) => patch('customGestureId', gestureId)} /></div>
           )}

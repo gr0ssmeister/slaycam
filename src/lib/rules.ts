@@ -10,7 +10,7 @@ export interface RuleIdentity {
 export function findDuplicateRule(rules: EffectRule[], draft: RuleIdentity): EffectRule | undefined {
   return rules.find((rule) => {
     if (rule.mediaId !== draft.mediaId || rule.triggerType !== draft.triggerType) return false
-    return draft.triggerType === 'built-in'
+    return draft.triggerType !== 'custom'
       ? rule.gesture === draft.gesture
       : rule.customGestureId === draft.customGestureId
   })

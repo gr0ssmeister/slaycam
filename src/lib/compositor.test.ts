@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createRule } from '../config'
 import type { ActiveEffect, Point3D } from '../types'
-import { anchorPoint } from './compositor'
+import { anchorPoint, animationTransform } from './compositor'
 
 function effect(anchor: ActiveEffect['rule']['anchor'], poseLandmarks: Point3D[] = []): ActiveEffect {
   return {
@@ -32,5 +32,16 @@ describe('effect anchors', () => {
     expect(anchorPoint(effect('face', pose), 1000, 500, false)).toEqual({ x: 450, y: 120 })
     expect(anchorPoint(effect('left-hand', pose), 1000, 500, false)).toEqual({ x: 240, y: 350 })
     expect(anchorPoint(effect('right-hand', pose), 1000, 500, true)).toEqual({ x: 240, y: 350 })
+  })
+
+  it('starts and finishes live media with the selected entrance animation', () => {
+    const active = effect('screen-center')
+    active.startedAt = 1000
+    active.endsAt = 3000
+    active.rule.animation = 'pop'
+
+    expect(animationTransform(active, 1000)).toMatchObject({ scale: 0.72, opacity: 0 })
+    expect(animationTransform(active, 1220)).toMatchObject({ scale: 1, opacity: 1 })
+    expect(animationTransform(active, 3000).opacity).toBe(0)
   })
 })

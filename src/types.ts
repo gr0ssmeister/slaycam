@@ -1,6 +1,6 @@
 export type MediaType = 'image' | 'video'
-export type TriggerType = 'built-in' | 'custom'
-export type CustomGestureTracking = 'hand' | 'pose' | 'motion'
+export type TriggerType = 'built-in' | 'custom' | 'emotion'
+export type CustomGestureTracking = 'hand' | 'two-hands' | 'pose' | 'motion' | 'emotion'
 export type Anchor = 'screen-center' | 'screen-top' | 'screen-bottom' | 'screen-top-left' | 'screen-top-right' | 'screen-bottom-left' | 'screen-bottom-right' | 'above-head' | 'face' | 'gesture-hand' | 'left-hand' | 'right-hand'
 export type EffectAnimation = 'pop' | 'fade' | 'slide-up' | 'spin' | 'none'
 export type EffectMode = 'once' | 'while-held'
@@ -68,7 +68,6 @@ export interface AppSettings {
   showFps: boolean
   inferenceFps: number
   onboardingComplete: boolean
-  outputWindowOpen: boolean
 }
 
 export interface SlayCamConfig {
@@ -111,7 +110,16 @@ export const BUILT_IN_GESTURES = [
   { value: 'Thumb_Up', label: 'Большой палец вверх', emoji: '👍', hint: 'Покажи лайк' },
   { value: 'Thumb_Down', label: 'Большой палец вниз', emoji: '👎', hint: 'Поверни большой палец вниз' },
   { value: 'Victory', label: 'Знак победы', emoji: '✌️', hint: 'Подними два пальца' },
-  { value: 'ILoveYou', label: 'I love you', emoji: '🤟', hint: 'Большой, указательный и мизинец' },
+] as const
+
+export const BUILT_IN_EMOTIONS = [
+  { value: 'smile', label: 'Улыбка', emoji: '😄', hint: 'Улыбнись заметно' },
+  { value: 'mouth-open', label: 'Удивление', emoji: '😮', hint: 'Открой рот' },
+  { value: 'eyes-closed', label: 'Закрытые глаза', emoji: '😌', hint: 'Закрой оба глаза' },
+  { value: 'wink-left', label: 'Подмигивание слева', emoji: '😉', hint: 'Закрой левый глаз' },
+  { value: 'wink-right', label: 'Подмигивание справа', emoji: '😉', hint: 'Закрой правый глаз' },
+  { value: 'brows-up', label: 'Брови вверх', emoji: '😯', hint: 'Подними брови' },
+  { value: 'cheek-puff', label: 'Надутые щёки', emoji: '😗', hint: 'Надуй щёки' },
 ] as const
 
 export const ANCHORS: { value: Anchor; label: string; hint: string; icon: string }[] = [

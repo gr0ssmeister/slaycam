@@ -10,7 +10,6 @@ export const DEFAULT_SETTINGS: SlayCamConfig['settings'] = {
   showFps: true,
   inferenceFps: 24,
   onboardingComplete: false,
-  outputWindowOpen: false,
 }
 
 export const DEFAULT_CONFIG: SlayCamConfig = {

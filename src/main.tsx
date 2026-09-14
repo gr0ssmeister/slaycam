@@ -60,17 +60,17 @@ if (import.meta.env.DEV && !window.slaycam) {
     saveConfig: async (config) => { localStorage.setItem('slaycam.preview', JSON.stringify(config)); return true },
     importMedia: async () => [],
     removeMedia: async () => true,
-    openOutput: async () => true,
-    closeOutput: async () => true,
-    sendOutputFrame: () => undefined,
     openExternal: async (url) => { window.open(url, '_blank', 'noopener'); return true },
     getUpdateState: async () => previewUpdateState,
     checkForUpdates: previewCheck,
     downloadUpdate: previewDownload,
     installUpdate: previewInstall,
     getPlatform: () => navigator.platform,
-    onOutputFrame: () => () => undefined,
-    onOutputState: () => () => undefined,
+    minimizeWindow: async () => true,
+    toggleMaximizeWindow: async () => false,
+    isWindowMaximized: async () => false,
+    closeWindow: async () => true,
+    onWindowMaximized: () => () => undefined,
     onUpdateState: (handler) => {
       updateListeners.add(handler)
       return () => updateListeners.delete(handler)

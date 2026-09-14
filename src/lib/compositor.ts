@@ -42,10 +42,17 @@ export function anchorPoint(effect: ActiveEffect, width: number, height: number,
     ? effect.poseLandmarks
     : effect.landmarks.length === 33 ? effect.landmarks : []
   const handLandmarks = effect.landmarks.length === 21 ? effect.landmarks : []
+  const twoHands = effect.landmarks.length === 42 ? [effect.landmarks.slice(0, 21), effect.landmarks.slice(21, 42)] : []
   const toCanvas = (point: Point3D | undefined, fallbackX: number, fallbackY: number) => point
     ? { x: (mirrored ? 1 - point.x : point.x) * width, y: point.y * height }
     : { x: fallbackX * width, y: fallbackY * height }
-  const activeHand = toCanvas(handLandmarks[9] ?? handLandmarks[0], 0.5, 0.56)
+  const activeHand = twoHands.length === 2
+    ? (() => {
+        const first = toCanvas(twoHands[0][9] ?? twoHands[0][0], 0.4, 0.56)
+        const second = toCanvas(twoHands[1][9] ?? twoHands[1][0], 0.6, 0.56)
+        return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }
+      })()
+    : toCanvas(handLandmarks[9] ?? handLandmarks[0], 0.5, 0.56)
   const face = toCanvas(pose[0], 0.5, 0.3)
   switch (rule.anchor) {
     case 'gesture-hand':
@@ -75,7 +82,7 @@ export function anchorPoint(effect: ActiveEffect, width: number, height: number,
   }
 }
 
-function animationTransform(effect: ActiveEffect, now: number) {
+export function animationTransform(effect: ActiveEffect, now: number) {
   const elapsed = now - effect.startedAt
   const total = Math.max(1, effect.endsAt - effect.startedAt)
   const progress = Math.min(1, elapsed / total)
@@ -104,20 +111,9 @@ export function drawScene(
   mediaBank: MediaBank,
   now: number,
 ) {
-  const { width, height } = context.canvas
-  context.clearRect(0, 0, width, height)
-  context.fillStyle = '#120b10'
-  context.fillRect(0, 0, width, height)
-  if (video.readyState >= 2) {
-    context.save()
-    if (config.settings.mirrorCamera) {
-      context.translate(width, 0)
-      context.scale(-1, 1)
-    }
-    context.drawImage(video, 0, 0, width, height)
-    context.restore()
-  }
+  drawCameraFrame(context, video, config)
 
+  const { width, height } = context.canvas
   const mediaMap = new Map(config.media.map((asset) => [asset.id, asset]))
   for (const effect of [...effects].sort((a, b) => a.rule.layer - b.rule.layer)) {
     const asset = mediaMap.get(effect.mediaId)
@@ -141,6 +137,27 @@ export function drawScene(
     context.drawImage(drawable, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight)
     context.restore()
   }
+}
+
+export function drawCameraFrame(
+  context: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  config: SlayCamConfig,
+) {
+  const { width, height } = context.canvas
+  context.clearRect(0, 0, width, height)
+  context.fillStyle = '#120b10'
+  context.fillRect(0, 0, width, height)
+  if (video.readyState >= 2) {
+    context.save()
+    if (config.settings.mirrorCamera) {
+      context.translate(width, 0)
+      context.scale(-1, 1)
+    }
+    context.drawImage(video, 0, 0, width, height)
+    context.restore()
+  }
+
 }
 
 export function drawLandmarks(

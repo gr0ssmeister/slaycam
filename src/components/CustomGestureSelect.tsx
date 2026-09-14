@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Hand, PersonStanding, Waves } from 'lucide-react'
+import { Check, ChevronDown, Hand, HeartHandshake, PersonStanding, Smile, Waves } from 'lucide-react'
 import { useState } from 'react'
 import type { CustomGesture } from '../types'
 
@@ -43,10 +43,14 @@ export function CustomGesturePreview({ gesture }: { gesture?: CustomGesture }) {
   if (gesture?.preview) return <img src={gesture.preview} alt="" />
   if (gesture?.tracking === 'pose') return <PersonStanding aria-hidden="true" />
   if (gesture?.tracking === 'motion') return <Waves aria-hidden="true" />
+  if (gesture?.tracking === 'two-hands') return <HeartHandshake aria-hidden="true" />
+  if (gesture?.tracking === 'emotion') return <Smile aria-hidden="true" />
   return <Hand aria-hidden="true" />
 }
 
 function gestureKind(gesture: CustomGesture) {
   if (gesture.tracking === 'motion') return `Движение · ${(gesture.durationMs ?? 3000) / 1000} сек`
-  return gesture.tracking === 'pose' ? 'Поза тела' : 'Жест рукой'
+  if (gesture.tracking === 'pose') return 'Поза тела'
+  if (gesture.tracking === 'emotion') return 'Своя эмоция'
+  return gesture.tracking === 'two-hands' ? 'Жест двумя руками' : 'Жест одной рукой'
 }

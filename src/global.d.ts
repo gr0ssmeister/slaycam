@@ -4,6 +4,7 @@ import type { UpdateState } from './update'
 declare global {
   interface ImportMetaEnv {
     readonly DEV: boolean
+    readonly BASE_URL: string
   }
 
   interface ImportMeta {
@@ -16,17 +17,17 @@ declare global {
       saveConfig(config: SlayCamConfig): Promise<boolean>
       importMedia(): Promise<MediaAsset[]>
       removeMedia(storedName: string): Promise<boolean>
-      openOutput(): Promise<boolean>
-      closeOutput(): Promise<boolean>
-      sendOutputFrame(dataUrl: string): void
       openExternal(url: string): Promise<boolean>
       getUpdateState(): Promise<UpdateState>
       checkForUpdates(): Promise<UpdateState>
       downloadUpdate(): Promise<UpdateState>
       installUpdate(): Promise<boolean>
       getPlatform(): string
-      onOutputFrame(handler: (frame: string) => void): () => void
-      onOutputState(handler: (isOpen: boolean) => void): () => void
+      minimizeWindow(): Promise<boolean>
+      toggleMaximizeWindow(): Promise<boolean>
+      isWindowMaximized(): Promise<boolean>
+      closeWindow(): Promise<boolean>
+      onWindowMaximized(handler: (maximized: boolean) => void): () => void
       onUpdateState(handler: (state: UpdateState) => void): () => void
     }
   }

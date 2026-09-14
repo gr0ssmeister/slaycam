@@ -15,6 +15,23 @@ export function normalizeLandmarks(landmarks: Point3D[]): number[] {
   return translated.flatMap((point) => [point.x / scale, point.y / scale, point.z / scale])
 }
 
+export function normalizeTwoHandLandmarks(hands: Point3D[][]): number[] {
+  if (hands.length < 2 || hands.some((hand) => hand.length < 21)) return []
+  const ordered = hands.slice(0, 2).sort((a, b) => a[0].x - b[0].x)
+  const center = {
+    x: (ordered[0][0].x + ordered[1][0].x) / 2,
+    y: (ordered[0][0].y + ordered[1][0].y) / 2,
+    z: (ordered[0][0].z + ordered[1][0].z) / 2,
+  }
+  const translated = ordered.flat().map((point) => ({
+    x: point.x - center.x,
+    y: point.y - center.y,
+    z: point.z - center.z,
+  }))
+  const scale = Math.max(...translated.map((point) => Math.hypot(point.x, point.y, point.z)), 0.0001)
+  return translated.flatMap((point) => [point.x / scale, point.y / scale, point.z / scale])
+}
+
 export function normalizePoseLandmarks(landmarks: Point3D[]): number[] {
   if (landmarks.length < 33) return []
   const leftHip = landmarks[23]
@@ -60,6 +77,35 @@ export function matchCustomGesture(
     if (distance <= gesture.threshold && (!best || score > best.score)) {
       best = { id: gesture.id, name: gesture.name, score }
     }
+  }
+  return best
+}
+
+export function matchCustomTwoHandGesture(
+  hands: Point3D[][],
+  gestures: CustomGesture[],
+): { id: string; name: string; score: number } | null {
+  const normalized = normalizeTwoHandLandmarks(hands)
+  if (!normalized.length) return null
+  let best: { id: string; name: string; score: number } | null = null
+  for (const gesture of gestures.filter((item) => item.tracking === 'two-hands')) {
+    const distance = Math.min(...gesture.samples.map((sample) => gestureDistance(normalized, sample)))
+    const score = Math.max(0, 1 - distance)
+    if (distance <= gesture.threshold && (!best || score > best.score)) best = { id: gesture.id, name: gesture.name, score }
+  }
+  return best
+}
+
+export function matchCustomEmotion(
+  blendshapes: number[],
+  gestures: CustomGesture[],
+): { id: string; name: string; score: number } | null {
+  if (!blendshapes.length) return null
+  let best: { id: string; name: string; score: number } | null = null
+  for (const gesture of gestures.filter((item) => item.tracking === 'emotion')) {
+    const distance = Math.min(...gesture.samples.map((sample) => gestureDistance(blendshapes, sample)))
+    const score = Math.max(0, 1 - distance)
+    if (distance <= gesture.threshold && (!best || score > best.score)) best = { id: gesture.id, name: gesture.name, score }
   }
   return best
 }
@@ -182,11 +228,11 @@ export class RuleEngine {
 
 export function readingMatchesRule(
   reading: GestureReading,
-  triggerType: 'built-in' | 'custom',
+  triggerType: 'built-in' | 'custom' | 'emotion',
   gesture: string,
   customGestureId?: string,
 ): boolean {
-  return triggerType === 'custom'
-    ? reading.name === `custom:${customGestureId}`
-    : reading.name === gesture
+  if (triggerType === 'custom') return reading.name === `custom:${customGestureId}`
+  if (triggerType === 'emotion') return reading.name === `emotion:${gesture}`
+  return reading.name === gesture
 }

@@ -7,6 +7,7 @@ const wasmSource = resolve(root, 'node_modules/@mediapipe/tasks-vision/wasm')
 const wasmTarget = resolve(root, 'public/wasm')
 const gestureModelTarget = resolve(root, 'public/models/gesture_recognizer.task')
 const poseModelTarget = resolve(root, 'public/models/pose_landmarker_lite.task')
+const faceModelTarget = resolve(root, 'public/models/face_landmarker.task')
 
 await mkdir(wasmTarget, { recursive: true })
 await mkdir(dirname(gestureModelTarget), { recursive: true })
@@ -27,6 +28,10 @@ await ensureModel(
 await ensureModel(
   poseModelTarget,
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+)
+await ensureModel(
+  faceModelTarget,
+  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
 )
 
 async function ensureModel(target, url) {

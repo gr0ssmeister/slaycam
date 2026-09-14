@@ -1,18 +1,21 @@
-import { Camera, CircleStop, Maximize2, MonitorUp, Play, Sparkles } from 'lucide-react'
-import type { CameraStatus, GestureReading } from '../types'
+import { Camera, CircleStop, Play, Sparkles } from 'lucide-react'
+import type { ActiveEffect, CameraStatus, GestureReading, MediaAsset } from '../types'
+import { LiveEffects } from './LiveEffects'
 
 interface PreviewStageProps {
   canvasRef: React.RefObject<HTMLCanvasElement>
   status: CameraStatus
   readings: GestureReading[]
-  activeCount: number
+  effects: ActiveEffect[]
+  media: MediaAsset[]
+  frameWidth: number
+  frameHeight: number
+  mirrorCamera: boolean
   cameraOn: boolean
-  outputOpen: boolean
   showFps: boolean
   fps: number
   onStart: () => void
   onStop: () => void
-  onOpenOutput: () => void
 }
 
 const gestureLabels: Record<string, string> = {
@@ -22,24 +25,34 @@ const gestureLabels: Record<string, string> = {
   Thumb_Up: 'Большой палец вверх',
   Thumb_Down: 'Большой палец вниз',
   Victory: 'Знак победы',
-  ILoveYou: 'I love you',
+  'emotion:smile': 'Улыбка',
+  'emotion:mouth-open': 'Удивление',
+  'emotion:eyes-closed': 'Закрытые глаза',
+  'emotion:wink-left': 'Подмигивание слева',
+  'emotion:wink-right': 'Подмигивание справа',
+  'emotion:brows-up': 'Брови вверх',
+  'emotion:cheek-puff': 'Надутые щёки',
 }
 
 export function PreviewStage(props: PreviewStageProps) {
   const detected = props.readings[0]
   return (
-    <section className="preview-shell" aria-label="Предпросмотр камеры">
+    <section className="preview-shell" aria-label="Камера и эффекты">
       <div className="preview-toolbar">
         <div className="camera-state" data-state={props.status.phase}>
           <span className="state-dot" />
           <span>{props.status.message}</span>
         </div>
-        <button className="icon-button" aria-label="Открыть отдельное окно вывода" onClick={props.onOpenOutput}>
-          <Maximize2 aria-hidden="true" />
-        </button>
       </div>
       <div className="preview-frame">
         <canvas ref={props.canvasRef} width={1280} height={720} />
+        <LiveEffects
+          effects={props.effects}
+          media={props.media}
+          frameWidth={props.frameWidth}
+          frameHeight={props.frameHeight}
+          mirrorCamera={props.mirrorCamera}
+        />
         {!props.cameraOn && (
           <div className="camera-empty">
             <span className="empty-orbit" aria-hidden="true"><Camera /></span>
@@ -57,28 +70,16 @@ export function PreviewStage(props: PreviewStageProps) {
             <strong>{Math.round(detected.score * 100)}%</strong>
           </div>
         )}
-        {props.activeCount > 0 && <div className="effect-counter">Эффектов в кадре: {props.activeCount}</div>}
+        {props.effects.length > 0 && <div className="effect-counter">Эффектов в кадре: {props.effects.length}</div>}
         {props.showFps && props.cameraOn && <div className="fps-badge">{props.fps} FPS</div>}
       </div>
-      <div className="preview-actions">
-        <div className="button-group">
-          {props.cameraOn ? (
-            <button className="button secondary" onClick={props.onStop}>
-              <CircleStop aria-hidden="true" />
-              Остановить
-            </button>
-          ) : (
-            <button className="button primary" onClick={props.onStart}>
-              <Play aria-hidden="true" />
-              Запустить камеру
-            </button>
-          )}
-          <button className="button secondary" onClick={props.onOpenOutput}>
-            <MonitorUp aria-hidden="true" />
-            {props.outputOpen ? 'Показать вывод' : 'Открыть вывод'}
+      <div className="preview-actions" data-camera-on={props.cameraOn}>
+        {props.cameraOn && (
+          <button className="button secondary camera-stop-button" onClick={props.onStop}>
+            <CircleStop aria-hidden="true" />
+            Остановить камеру
           </button>
-        </div>
-        <span className="privacy-note">Предпросмотр камеры</span>
+        )}
       </div>
     </section>
   )

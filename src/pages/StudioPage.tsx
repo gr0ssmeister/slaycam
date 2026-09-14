@@ -12,7 +12,6 @@ interface StudioPageProps {
   fps: number
   onStart: () => void
   onStop: () => void
-  onOpenOutput: () => void
   onNavigate: (page: 'rules' | 'gestures' | 'media') => void
 }
 
@@ -32,14 +31,16 @@ export function StudioPage(props: StudioPageProps) {
           canvasRef={props.canvasRef}
           status={props.status}
           readings={props.readings}
-          activeCount={props.effects.length}
+          effects={props.effects}
+          media={props.config.media}
+          frameWidth={props.config.settings.width}
+          frameHeight={props.config.settings.height}
+          mirrorCamera={props.config.settings.mirrorCamera}
           cameraOn={props.status.phase === "ready"}
-          outputOpen={props.config.settings.outputWindowOpen}
           showFps={props.config.settings.showFps}
           fps={props.fps}
           onStart={props.onStart}
           onStop={props.onStop}
-          onOpenOutput={props.onOpenOutput}
         />
         <aside className="studio-rail">
           <section className="rail-section">
@@ -117,7 +118,7 @@ export function StudioPage(props: StudioPageProps) {
               </span>
               <div>
                 <strong>Записать движение</strong>
-                <small>Рука, поза или связка</small>
+                <small>Одна/две руки, поза или связка</small>
               </div>
             </button>
           </section>

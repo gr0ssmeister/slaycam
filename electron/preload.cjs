@@ -5,24 +5,20 @@ contextBridge.exposeInMainWorld('slaycam', {
   saveConfig: (config) => ipcRenderer.invoke('config:save', config),
   importMedia: () => ipcRenderer.invoke('media:import'),
   removeMedia: (id) => ipcRenderer.invoke('media:remove', id),
-  openOutput: () => ipcRenderer.invoke('output:open'),
-  closeOutput: () => ipcRenderer.invoke('output:close'),
-  sendOutputFrame: (dataUrl) => ipcRenderer.send('output:frame', dataUrl),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),
   getUpdateState: () => ipcRenderer.invoke('updater:get-state'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   downloadUpdate: () => ipcRenderer.invoke('updater:download'),
   installUpdate: () => ipcRenderer.invoke('updater:install'),
   getPlatform: () => process.platform,
-  onOutputFrame: (handler) => {
-    const listener = (_event, frame) => handler(frame)
-    ipcRenderer.on('output:frame', listener)
-    return () => ipcRenderer.removeListener('output:frame', listener)
-  },
-  onOutputState: (handler) => {
-    const listener = (_event, isOpen) => handler(isOpen)
-    ipcRenderer.on('output:state', listener)
-    return () => ipcRenderer.removeListener('output:state', listener)
+  minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
+  toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggle-maximize'),
+  isWindowMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+  closeWindow: () => ipcRenderer.invoke('window:close'),
+  onWindowMaximized: (handler) => {
+    const listener = (_event, maximized) => handler(Boolean(maximized))
+    ipcRenderer.on('window:maximized', listener)
+    return () => ipcRenderer.removeListener('window:maximized', listener)
   },
   onUpdateState: (handler) => {
     const listener = (_event, state) => handler(state)

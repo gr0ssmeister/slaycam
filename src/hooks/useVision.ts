@@ -1,26 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FilesetResolver, GestureRecognizer, PoseLandmarker } from '@mediapipe/tasks-vision'
+import { FaceLandmarker, FilesetResolver, GestureRecognizer, PoseLandmarker } from '@mediapipe/tasks-vision'
 import type { AppSettings, CameraStatus, CustomGesture, GestureReading, Point3D } from '../types'
-import { matchCustomGesture, matchCustomPose, matchMotionGesture, normalizePoseLandmarks } from '../lib/gestures'
+import { blendshapeVector, emotionReadings } from '../lib/emotions'
+import { matchCustomEmotion, matchCustomGesture, matchCustomPose, matchCustomTwoHandGesture, matchMotionGesture, normalizePoseLandmarks } from '../lib/gestures'
 
 export function useVision(settings: AppSettings, customGestures: CustomGesture[]) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const recognizerRef = useRef<GestureRecognizer | null>(null)
   const poseRef = useRef<PoseLandmarker | null>(null)
+  const faceRef = useRef<FaceLandmarker | null>(null)
   const frameRef = useRef<number>(0)
   const lastHandInferenceRef = useRef(0)
   const lastPoseInferenceRef = useRef(0)
+  const lastFaceInferenceRef = useRef(0)
   const poseHistoryRef = useRef<number[][]>([])
   const customGesturesRef = useRef(customGestures)
   const [status, setStatus] = useState<CameraStatus>({
     phase: "idle",
-    message: "Предпросмотр камеры выключен",
+    message: "Камера выключена",
   });
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [readings, setReadings] = useState<GestureReading[]>([])
   const [hands, setHands] = useState<{ landmarks: Point3D[]; handedness: GestureReading['handedness'] }[]>([])
   const [poses, setPoses] = useState<Point3D[][]>([])
+  const [faces, setFaces] = useState<Point3D[][]>([])
+  const [faceBlendshapes, setFaceBlendshapes] = useState<number[]>([])
   const [modelReady, setModelReady] = useState(false)
 
   useEffect(() => { customGesturesRef.current = customGestures }, [customGestures])
@@ -32,10 +37,11 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
   }, [])
 
   const initializeModels = useCallback(async () => {
-    if (recognizerRef.current && poseRef.current) return { recognizer: recognizerRef.current, pose: poseRef.current }
+    if (recognizerRef.current && poseRef.current && faceRef.current) return { recognizer: recognizerRef.current, pose: poseRef.current, face: faceRef.current }
     const wasmRoot = new URL('./wasm/', document.baseURI).toString()
     const gestureModelPath = new URL('./models/gesture_recognizer.task', document.baseURI).toString()
     const poseModelPath = new URL('./models/pose_landmarker_lite.task', document.baseURI).toString()
+    const faceModelPath = new URL('./models/face_landmarker.task', document.baseURI).toString()
     const vision = await FilesetResolver.forVisionTasks(wasmRoot)
 
     const createRecognizer = (delegate: 'GPU' | 'CPU') => GestureRecognizer.createFromOptions(vision, {
@@ -55,6 +61,16 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
       minTrackingConfidence: 0.45,
       outputSegmentationMasks: false,
     })
+    const createFace = (delegate: 'GPU' | 'CPU') => FaceLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: faceModelPath, delegate },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      minFaceDetectionConfidence: 0.5,
+      minFacePresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+      outputFaceBlendshapes: true,
+      outputFacialTransformationMatrixes: false,
+    })
 
     try {
       recognizerRef.current = await createRecognizer('GPU')
@@ -66,8 +82,13 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
     } catch {
       poseRef.current = await createPose('CPU')
     }
+    try {
+      faceRef.current = await createFace('GPU')
+    } catch {
+      faceRef.current = await createFace('CPU')
+    }
     setModelReady(true)
-    return { recognizer: recognizerRef.current, pose: poseRef.current }
+    return { recognizer: recognizerRef.current, pose: poseRef.current, face: faceRef.current }
   }, [])
 
   const stopCamera = useCallback(() => {
@@ -79,7 +100,9 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
     setReadings([])
     setHands([])
     setPoses([])
-    setStatus({ phase: "idle", message: "Предпросмотр камеры выключен" });
+    setFaces([])
+    setFaceBlendshapes([])
+    setStatus({ phase: "idle", message: "Камера выключена" });
   }, [])
 
   const startCamera = useCallback(async () => {
@@ -87,7 +110,7 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
     try {
       stopCamera()
       setStatus({ phase: 'requesting', message: 'Загружаем точки тела…' })
-      const { recognizer, pose } = await initializeModels()
+      const { recognizer, pose, face } = await initializeModels()
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
@@ -98,7 +121,7 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
         },
       })
       streamRef.current = stream
-      if (!videoRef.current) throw new Error('Предпросмотр камеры не готов')
+      if (!videoRef.current) throw new Error('Камера ещё не готова')
       videoRef.current.srcObject = stream
       await videoRef.current.play()
       await refreshDevices()
@@ -107,13 +130,20 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
       let latestHands: { landmarks: Point3D[]; handedness: GestureReading['handedness'] }[] = []
       let latestPoses: Point3D[][] = []
       let latestBuiltIn: GestureReading[] = []
+      let latestEmotions: GestureReading[] = []
+      let latestFaceLandmarks: Point3D[] = []
+      let latestFaceBlendshapes: number[] = []
 
       const publishReadings = () => {
-        const nextReadings = [...latestBuiltIn]
+        const nextReadings = [...latestBuiltIn, ...latestEmotions]
         for (const hand of latestHands) {
           const custom = matchCustomGesture(hand.landmarks, customGesturesRef.current)
           if (custom) nextReadings.push({ name: `custom:${custom.id}`, score: custom.score, landmarks: hand.landmarks, handedness: hand.handedness })
         }
+        const twoHands = matchCustomTwoHandGesture(latestHands.map((hand) => hand.landmarks), customGesturesRef.current)
+        if (twoHands) nextReadings.push({ name: `custom:${twoHands.id}`, score: twoHands.score, landmarks: latestHands.slice(0, 2).flatMap((hand) => hand.landmarks), handedness: 'Unknown' })
+        const customEmotion = matchCustomEmotion(latestFaceBlendshapes, customGesturesRef.current)
+        if (customEmotion) nextReadings.push({ name: `custom:${customEmotion.id}`, score: customEmotion.score, landmarks: latestFaceLandmarks, handedness: 'Unknown' })
         const primaryPose = latestPoses[0]
         if (primaryPose) {
           const customPose = matchCustomPose(primaryPose, customGesturesRef.current)
@@ -170,6 +200,23 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
             console.warn('Pose frame skipped', error)
           }
         }
+        if (video.readyState >= 2 && now - lastFaceInferenceRef.current >= 1000 / Math.min(10, settings.inferenceFps)) {
+          lastFaceInferenceRef.current = now
+          try {
+            const result = face.detectForVideo(video, now)
+            const landmarks = result.faceLandmarks[0]?.map(({ x, y, z }) => ({ x, y, z })) as Point3D[] | undefined
+            latestFaceLandmarks = landmarks ?? []
+            latestFaceBlendshapes = result.faceBlendshapes[0] ? blendshapeVector(result.faceBlendshapes[0].categories) : []
+            latestEmotions = landmarks && result.faceBlendshapes[0]
+              ? emotionReadings(result.faceBlendshapes[0].categories, landmarks)
+              : []
+            setFaces(latestFaceLandmarks.length ? [latestFaceLandmarks] : [])
+            setFaceBlendshapes(latestFaceBlendshapes)
+            inferenceUpdated = true
+          } catch (error) {
+            console.warn('Face frame skipped', error)
+          }
+        }
         if (inferenceUpdated) publishReadings()
         frameRef.current = requestAnimationFrame(processFrame)
       }
@@ -193,8 +240,9 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
       streamRef.current?.getTracks().forEach((track) => track.stop())
       recognizerRef.current?.close()
       poseRef.current?.close()
+      faceRef.current?.close()
     }
   }, [refreshDevices])
 
-  return { videoRef, status, devices, readings, hands, poses, modelReady, startCamera, stopCamera, refreshDevices }
+  return { videoRef, status, devices, readings, hands, poses, faces, faceBlendshapes, modelReady, startCamera, stopCamera, refreshDevices }
 }

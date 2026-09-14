@@ -1,0 +1,84 @@
+{
+  "name": "slaycam",
+  "version": "0.1.0",
+  "description": "Gesture-powered camera effects for Windows",
+  "author": "Grossmeister",
+  "license": "MIT",
+  "main": "electron/main.mjs",
+  "type": "module",
+  "scripts": {
+    "prepare:vision": "node scripts/prepare-vision.mjs",
+    "dev": "npm run prepare:vision && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "npm run prepare:vision && tsc -b && vite build",
+    "build:win": "npm run build && electron-builder --win nsis --x64",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "lucide-react": "^1.44.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "44.3.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^5.0.0",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "by.grossmeister.slaycam",
+    "productName": "SlayCam",
+    "artifactName": "SlayCam-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "SlayCam",
+      "installerLanguages": ["ru_RU"],
+      "include": "build/installer.nsh",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    }
+  },
+  "allowScripts": {
+    "electron@44.3.0": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.21.5": true
+  }
+}

@@ -1,0 +1,197 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { FilesetResolver, GestureRecognizer, PoseLandmarker } from '@mediapipe/tasks-vision'
+import type { AppSettings, CameraStatus, CustomGesture, GestureReading, Point3D } from '../types'
+import { matchCustomGesture, matchCustomPose, matchMotionGesture, normalizePoseLandmarks } from '../lib/gestures'
+
+export function useVision(settings: AppSettings, customGestures: CustomGesture[]) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const recognizerRef = useRef<GestureRecognizer | null>(null)
+  const poseRef = useRef<PoseLandmarker | null>(null)
+  const frameRef = useRef<number>(0)
+  const lastHandInferenceRef = useRef(0)
+  const lastPoseInferenceRef = useRef(0)
+  const poseHistoryRef = useRef<number[][]>([])
+  const customGesturesRef = useRef(customGestures)
+  const [status, setStatus] = useState<CameraStatus>({ phase: 'idle', message: 'Камера выключена' })
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+  const [readings, setReadings] = useState<GestureReading[]>([])
+  const [hands, setHands] = useState<{ landmarks: Point3D[]; handedness: GestureReading['handedness'] }[]>([])
+  const [poses, setPoses] = useState<Point3D[][]>([])
+  const [modelReady, setModelReady] = useState(false)
+
+  useEffect(() => { customGesturesRef.current = customGestures }, [customGestures])
+
+  const refreshDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return
+    const available = await navigator.mediaDevices.enumerateDevices()
+    setDevices(available.filter((device) => device.kind === 'videoinput'))
+  }, [])
+
+  const initializeModels = useCallback(async () => {
+    if (recognizerRef.current && poseRef.current) return { recognizer: recognizerRef.current, pose: poseRef.current }
+    const wasmRoot = new URL('./wasm/', document.baseURI).toString()
+    const gestureModelPath = new URL('./models/gesture_recognizer.task', document.baseURI).toString()
+    const poseModelPath = new URL('./models/pose_landmarker_lite.task', document.baseURI).toString()
+    const vision = await FilesetResolver.forVisionTasks(wasmRoot)
+
+    const createRecognizer = (delegate: 'GPU' | 'CPU') => GestureRecognizer.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: gestureModelPath, delegate },
+      runningMode: 'VIDEO',
+      numHands: 2,
+      minHandDetectionConfidence: 0.5,
+      minHandPresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    })
+    const createPose = (delegate: 'GPU' | 'CPU') => PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: poseModelPath, delegate },
+      runningMode: 'VIDEO',
+      numPoses: 1,
+      minPoseDetectionConfidence: 0.45,
+      minPosePresenceConfidence: 0.45,
+      minTrackingConfidence: 0.45,
+      outputSegmentationMasks: false,
+    })
+
+    try {
+      recognizerRef.current = await createRecognizer('GPU')
+    } catch {
+      recognizerRef.current = await createRecognizer('CPU')
+    }
+    try {
+      poseRef.current = await createPose('GPU')
+    } catch {
+      poseRef.current = await createPose('CPU')
+    }
+    setModelReady(true)
+    return { recognizer: recognizerRef.current, pose: poseRef.current }
+  }, [])
+
+  const stopCamera = useCallback(() => {
+    cancelAnimationFrame(frameRef.current)
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    poseHistoryRef.current = []
+    if (videoRef.current) videoRef.current.srcObject = null
+    setReadings([])
+    setHands([])
+    setPoses([])
+    setStatus({ phase: 'idle', message: 'Камера выключена' })
+  }, [])
+
+  const startCamera = useCallback(async () => {
+    setStatus({ phase: 'requesting', message: 'Подключаем камеру…' })
+    try {
+      stopCamera()
+      setStatus({ phase: 'requesting', message: 'Загружаем точки тела…' })
+      const { recognizer, pose } = await initializeModels()
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          deviceId: settings.cameraId ? { exact: settings.cameraId } : undefined,
+          width: { ideal: settings.width },
+          height: { ideal: settings.height },
+          frameRate: { ideal: settings.fps },
+        },
+      })
+      streamRef.current = stream
+      if (!videoRef.current) throw new Error('Предпросмотр камеры не готов')
+      videoRef.current.srcObject = stream
+      await videoRef.current.play()
+      await refreshDevices()
+      setStatus({ phase: 'ready', message: 'Камера работает' })
+
+      let latestHands: { landmarks: Point3D[]; handedness: GestureReading['handedness'] }[] = []
+      let latestPoses: Point3D[][] = []
+      let latestBuiltIn: GestureReading[] = []
+
+      const publishReadings = () => {
+        const nextReadings = [...latestBuiltIn]
+        for (const hand of latestHands) {
+          const custom = matchCustomGesture(hand.landmarks, customGesturesRef.current)
+          if (custom) nextReadings.push({ name: `custom:${custom.id}`, score: custom.score, landmarks: hand.landmarks, handedness: hand.handedness })
+        }
+        const primaryPose = latestPoses[0]
+        if (primaryPose) {
+          const customPose = matchCustomPose(primaryPose, customGesturesRef.current)
+          if (customPose) nextReadings.push({ name: `custom:${customPose.id}`, score: customPose.score, landmarks: primaryPose, handedness: 'Unknown' })
+          const motion = matchMotionGesture(poseHistoryRef.current, customGesturesRef.current)
+          if (motion) nextReadings.push({ name: `custom:${motion.id}`, score: motion.score, landmarks: primaryPose, handedness: 'Unknown' })
+        }
+        setReadings(nextReadings)
+      }
+
+      const processFrame = () => {
+        const video = videoRef.current
+        if (!video || !streamRef.current) return
+        const now = performance.now()
+        let inferenceUpdated = false
+        if (video.readyState >= 2 && now - lastHandInferenceRef.current >= 1000 / settings.inferenceFps) {
+          lastHandInferenceRef.current = now
+          try {
+            const result = recognizer.recognizeForVideo(video, now)
+            latestHands = result.landmarks.map((rawLandmarks, index) => {
+              const landmarks = rawLandmarks.map(({ x, y, z }) => ({ x, y, z })) as Point3D[]
+              const handednessName = result.handedness[index]?.[0]?.categoryName
+              const handedness: GestureReading['handedness'] = handednessName === 'Left' || handednessName === 'Right' ? handednessName : 'Unknown'
+              return { landmarks, handedness }
+            })
+            latestBuiltIn = result.landmarks.flatMap((rawLandmarks, index) => {
+              const category = result.gestures[index]?.[0]
+              if (!category || category.categoryName === 'None') return []
+              const handednessName = result.handedness[index]?.[0]?.categoryName
+              const handedness: GestureReading['handedness'] = handednessName === 'Left' || handednessName === 'Right' ? handednessName : 'Unknown'
+              return [{
+                name: category.categoryName,
+                score: category.score,
+                landmarks: rawLandmarks.map(({ x, y, z }) => ({ x, y, z })) as Point3D[],
+                handedness,
+              }]
+            })
+            setHands(latestHands)
+            inferenceUpdated = true
+          } catch (error) {
+            console.warn('Hand frame skipped', error)
+          }
+        }
+        if (video.readyState >= 2 && now - lastPoseInferenceRef.current >= 1000 / Math.min(15, settings.inferenceFps)) {
+          lastPoseInferenceRef.current = now
+          try {
+            const result = pose.detectForVideo(video, now)
+            latestPoses = result.landmarks.map((rawLandmarks) => rawLandmarks.map(({ x, y, z }) => ({ x, y, z })) as Point3D[])
+            const normalized = latestPoses[0] ? normalizePoseLandmarks(latestPoses[0]) : []
+            if (normalized.length) poseHistoryRef.current = [...poseHistoryRef.current.slice(-89), normalized]
+            setPoses(latestPoses)
+            inferenceUpdated = true
+          } catch (error) {
+            console.warn('Pose frame skipped', error)
+          }
+        }
+        if (inferenceUpdated) publishReadings()
+        frameRef.current = requestAnimationFrame(processFrame)
+      }
+      frameRef.current = requestAnimationFrame(processFrame)
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : ''
+      if (name === 'NotAllowedError') {
+        setStatus({ phase: 'denied', message: 'Доступ к камере запрещён. Разрешите его в настройках системы.' })
+      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        setStatus({ phase: 'missing', message: 'Камера не найдена. Проверьте подключение или выберите другую.' })
+      } else {
+        setStatus({ phase: 'error', message: error instanceof Error ? error.message : 'Не удалось запустить камеру' })
+      }
+    }
+  }, [initializeModels, refreshDevices, settings.cameraId, settings.fps, settings.height, settings.inferenceFps, settings.width, stopCamera])
+
+  useEffect(() => {
+    void refreshDevices()
+    return () => {
+      cancelAnimationFrame(frameRef.current)
+      streamRef.current?.getTracks().forEach((track) => track.stop())
+      recognizerRef.current?.close()
+      poseRef.current?.close()
+    }
+  }, [refreshDevices])
+
+  return { videoRef, status, devices, readings, hands, poses, modelReady, startCamera, stopCamera, refreshDevices }
+}

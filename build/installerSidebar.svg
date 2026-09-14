@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="164" height="314" viewBox="0 0 164 314">
+  <defs>
+    <linearGradient id="rose" x1="20" y1="0" x2="150" y2="314" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e95ca8"/>
+      <stop offset="1" stop-color="#72185d"/>
+    </linearGradient>
+  </defs>
+  <rect width="164" height="314" fill="url(#rose)"/>
+  <circle cx="139" cy="38" r="48" fill="#ffb64f" fill-opacity=".9"/>
+  <circle cx="5" cy="256" r="64" fill="#c42d86"/>
+  <rect x="34" y="81" width="96" height="96" rx="28" fill="#fff" fill-opacity=".14"/>
+  <path d="M66 100c17-9 43-3 50 12-14-4-28-3-38 3-9 5-12 14-4 18 4 2 11 2 17 2 20 0 35 11 35 28 0 19-19 32-43 32-21 0-38-9-47-23l25-13c5 8 13 12 22 12 9 0 15-3 15-7 0-4-4-6-11-6-26 0-44-10-44-29 0-13 8-24 23-29Z" fill="#fff"/>
+  <path d="m123 64 6 13 13 6-13 6-6 13-6-13-13-6 13-6 6-13Z" fill="#ffc767"/>
+  <text x="82" y="223" fill="#fff" font-family="Segoe UI, sans-serif" font-size="21" font-weight="700" text-anchor="middle">SlayCam</text>
+  <text x="82" y="243" fill="#ffdcec" font-family="Segoe UI, sans-serif" font-size="10" font-weight="600" text-anchor="middle">СИЯЙ В КАДРЕ</text>
+  <text x="82" y="292" fill="#ffdcec" font-family="Segoe UI, sans-serif" font-size="8" text-anchor="middle">by grossmeister</text>
+</svg>

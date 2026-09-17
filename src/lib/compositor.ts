@@ -20,6 +20,7 @@ export class MediaBank {
     if (cached) return cached
     if (asset.type === 'video') {
       const video = document.createElement('video')
+      video.crossOrigin = 'anonymous'
       video.src = asset.src
       video.muted = true
       video.loop = true
@@ -29,6 +30,7 @@ export class MediaBank {
       return video
     }
     const image = new Image()
+    image.crossOrigin = 'anonymous'
     image.src = asset.src
     image.decoding = 'async'
     this.items.set(asset.id, image)

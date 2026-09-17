@@ -126,6 +126,7 @@ async function assetResponse(request, folder) {
   const headers = new Headers(response.headers)
   headers.set('Content-Type', mediaMimeTypes.get(extname(requested).toLowerCase()) ?? 'application/octet-stream')
   headers.set('Cache-Control', 'public, max-age=31536000, immutable')
+  headers.set('Access-Control-Allow-Origin', '*')
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 

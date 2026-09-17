@@ -40,6 +40,7 @@ function SlayCamApp() {
   const effectsRef = useRef<ActiveEffect[]>([])
   const fpsCounterRef = useRef({ frames: 0, startedAt: performance.now() })
   const perfRef = useRef({ frames: 0, draw: 0, output: 0, startedAt: performance.now() })
+  const frameErrorRef = useRef({ count: 0, reportedAt: 0 })
   const virtualFrameRef = useRef(0)
   const autoLaunchAttemptedRef = useRef(false)
   const vision = useVision(config.settings, config.gestures)
@@ -205,7 +206,16 @@ function SlayCamApp() {
       outputContext.drawImage(sourceCanvas, 0, 0, size.width, size.height)
       return outputContext.getImageData(0, 0, size.width, size.height)
     }
-    const render = (now: number) => {
+    // One bad frame must never end the camera: it is reported and the next frame is drawn.
+    const reportFrameFailure = (error: unknown) => {
+      const failures = frameErrorRef.current
+      failures.count += 1
+      const at = performance.now()
+      if (failures.count > 1 && at - failures.reportedAt < 10000) return
+      failures.reportedAt = at
+      window.slaycam.reportRendererError(`frame-failure #${failures.count}: ${error instanceof Error ? error.stack || error.message : String(error)}`)
+    }
+    const drawFrame = (now: number) => {
       const canvas = canvasRef.current
       const video = vision.videoRef.current
       if (canvas && video) {
@@ -251,6 +261,13 @@ function SlayCamApp() {
           setRenderFps(Math.round(fpsCounterRef.current.frames * 1000 / (now - fpsCounterRef.current.startedAt)))
           fpsCounterRef.current = { frames: 0, startedAt: now }
         }
+      }
+    }
+    const render = (now: number) => {
+      try {
+        drawFrame(now)
+      } catch (error) {
+        reportFrameFailure(error)
       }
       frame = requestAnimationFrame(render)
     }

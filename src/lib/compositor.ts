@@ -1,11 +1,17 @@
 import type { ActiveEffect, BackgroundSettings, MediaAsset, Point3D, SegmentationFrame, SlayCamConfig } from '../types'
 
 type Drawable = HTMLImageElement | HTMLVideoElement
-type DrawSource = Drawable | HTMLCanvasElement
+type DrawSource = Drawable | HTMLCanvasElement | ImageBitmap
+type Animation = { frames: ImageBitmap[], durations: number[], total: number }
 
 // A meme imported at 4000 px wide would be resampled from scratch on every single frame,
 // so anything wider than a camera frame is shrunk once and drawn from that copy instead.
 const MAX_SOURCE_WIDTH = 1280
+// Drawing an <img> on a canvas always yields the first frame of a GIF, so animated files
+// are decoded frame by frame instead. Frames are kept as bitmaps under a memory budget.
+const MAX_ANIMATION_WIDTH = 640
+const ANIMATION_BUDGET_BYTES = 24 * 1024 * 1024
+const ANIMATED_EXTENSIONS = new Set(['.gif', '.webp'])
 
 let personCanvas: HTMLCanvasElement | undefined
 let maskCanvas: HTMLCanvasElement | undefined
@@ -14,6 +20,8 @@ let cachedSegmentation: SegmentationFrame | undefined
 export class MediaBank {
   private items = new Map<string, Drawable>()
   private scaled = new Map<string, HTMLCanvasElement>()
+  private animations = new Map<string, Animation>()
+  private decoding = new Set<string>()
 
   get(asset: MediaAsset): Drawable {
     const cached = this.items.get(asset.id)
@@ -37,8 +45,12 @@ export class MediaBank {
     return image
   }
 
-  // The drawable ready to be painted this frame, downscaled once when the file is oversized.
-  source(asset: MediaAsset): DrawSource | undefined {
+  // The drawable ready to be painted this frame: the current frame of an animation when the
+  // file moves, otherwise the picture itself, downscaled once when the file is oversized.
+  source(asset: MediaAsset, now = 0): DrawSource | undefined {
+    const animation = this.animations.get(asset.id)
+    if (animation) return frameAt(animation, now)
+    this.startDecoding(asset)
     const original = this.get(asset)
     if (!drawableReady(original)) return undefined
     if (!(original instanceof HTMLImageElement) || original.naturalWidth <= MAX_SOURCE_WIDTH) return original
@@ -54,6 +66,15 @@ export class MediaBank {
     return canvas
   }
 
+  private startDecoding(asset: MediaAsset) {
+    if (asset.type !== 'image' || this.decoding.has(asset.id)) return
+    if (!ANIMATED_EXTENSIONS.has(asset.extension.toLowerCase())) return
+    this.decoding.add(asset.id)
+    void decodeAnimation(asset).then((animation) => {
+      if (animation) this.animations.set(asset.id, animation)
+    })
+  }
+
   removeMissing(media: MediaAsset[]) {
     const ids = new Set(media.map((asset) => asset.id))
     for (const [id, item] of this.items) {
@@ -61,8 +82,66 @@ export class MediaBank {
         if (item instanceof HTMLVideoElement) item.pause()
         this.items.delete(id)
         this.scaled.delete(id)
+        this.animations.get(id)?.frames.forEach((frame) => frame.close())
+        this.animations.delete(id)
       }
     }
+  }
+}
+
+function frameAt(animation: Animation, now: number) {
+  let position = animation.total > 0 ? now % animation.total : 0
+  for (let index = 0; index < animation.frames.length; index += 1) {
+    position -= animation.durations[index]
+    if (position < 0) return animation.frames[index]
+  }
+  return animation.frames[animation.frames.length - 1]
+}
+
+async function decodeAnimation(asset: MediaAsset): Promise<Animation | undefined> {
+  if (typeof ImageDecoder === 'undefined') return undefined
+  try {
+    const response = await fetch(asset.src)
+    const data = await response.arrayBuffer()
+    const decoder = new ImageDecoder({ data, type: asset.extension.toLowerCase() === '.webp' ? 'image/webp' : 'image/gif' })
+    await decoder.tracks.ready
+    const track = decoder.tracks.selectedTrack
+    if (!track?.animated || track.frameCount < 2) {
+      decoder.close()
+      return undefined
+    }
+    const frames: ImageBitmap[] = []
+    const durations: number[] = []
+    let budget = ANIMATION_BUDGET_BYTES
+    for (let index = 0; index < track.frameCount; index += 1) {
+      const { image } = await decoder.decode({ frameIndex: index })
+      let exhausted = false
+      try {
+        const scale = Math.min(1, MAX_ANIMATION_WIDTH / image.displayWidth)
+        const width = Math.max(1, Math.round(image.displayWidth * scale))
+        const height = Math.max(1, Math.round(image.displayHeight * scale))
+        budget -= width * height * 4
+        exhausted = budget < 0 && frames.length > 0
+        if (!exhausted) {
+          frames.push(await createImageBitmap(image, { resizeWidth: width, resizeHeight: height }))
+          // A frame without a stated delay follows the browser default for GIFs.
+          durations.push(Math.max(20, (image.duration ?? 100000) / 1000))
+        }
+      } finally {
+        // A decoded frame holds native memory until it is closed, even when we drop it.
+        image.close()
+      }
+      if (exhausted) break
+    }
+    decoder.close()
+    if (frames.length < 2) {
+      frames.forEach((frame) => frame.close())
+      return undefined
+    }
+    return { frames, durations, total: durations.reduce((sum, value) => sum + value, 0) }
+  } catch {
+    // A file we cannot decode simply keeps being drawn as a still picture.
+    return undefined
   }
 }
 
@@ -150,14 +229,14 @@ export function drawScene(
   segmentation?: SegmentationFrame | null,
 ) {
   const backgroundAsset = config.media.find((asset) => asset.id === background?.mediaId)
-  drawCameraFrame(context, video, config, background, backgroundAsset, mediaBank, segmentation)
+  drawCameraFrame(context, video, config, background, backgroundAsset, mediaBank, segmentation, now)
 
   const { width, height } = context.canvas
   const mediaMap = new Map(config.media.map((asset) => [asset.id, asset]))
   for (const effect of [...effects].sort((a, b) => a.rule.layer - b.rule.layer)) {
     const asset = mediaMap.get(effect.mediaId)
     if (!asset) continue
-    const drawable = mediaBank.source(asset)
+    const drawable = mediaBank.source(asset, now)
     if (!drawable) continue
     const { width: naturalWidth, height: naturalHeight } = sourceSize(drawable)
     if (!naturalWidth || !naturalHeight) continue
@@ -184,6 +263,7 @@ export function drawCameraFrame(
   backgroundAsset?: MediaAsset,
   mediaBank?: MediaBank,
   segmentation?: SegmentationFrame | null,
+  now = 0,
 ) {
   const { width, height } = context.canvas
   context.clearRect(0, 0, width, height)
@@ -203,7 +283,7 @@ export function drawCameraFrame(
     drawVideo(context, video, width, height, config.settings.mirrorCamera, overscan)
     context.restore()
   } else if (background.mode === 'media' && backgroundAsset && mediaBank) {
-    const drawable = mediaBank.source(backgroundAsset)
+    const drawable = mediaBank.source(backgroundAsset, now)
     if (drawable) drawCover(context, drawable, width, height)
     else fillBackground(context, background.color, width, height)
   } else {

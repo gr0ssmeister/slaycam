@@ -148,20 +148,31 @@ export function sequenceDistance(a: number[][], b: number[][]): number {
   return sampled.reduce((sum, frame, index) => sum + gestureDistance(frame, b[index]), 0) / b.length
 }
 
+// Live poses arrive at their own rate, and nobody repeats a movement at exactly the speed
+// they recorded it. Comparing only a window as long as the recording therefore missed most
+// takes, so the same movement is looked for across a range of tempos.
+const MOTION_TEMPOS = [0.6, 0.75, 0.9, 1, 1.15, 1.35, 1.6]
+
 export function matchMotionGesture(
   poseHistory: number[][],
   gestures: CustomGesture[],
 ): { id: string; name: string; score: number } | null {
   let best: { id: string; name: string; score: number } | null = null
   for (const gesture of gestures.filter((item) => item.tracking === 'motion' && item.samples.length >= 8)) {
-    const window = poseHistory.slice(-gesture.samples.length)
-    if (window.length < Math.max(8, Math.floor(gesture.samples.length * 0.75))) continue
-    const energy = motionEnergy(window)
     const expectedEnergy = gesture.motionEnergy ?? motionEnergy(gesture.samples)
-    if (expectedEnergy > 0.004 && energy < expectedEnergy * 0.35) continue
-    const distance = sequenceDistance(window, gesture.samples)
-    const score = Math.max(0, 1 - distance)
-    if (distance <= gesture.threshold && (!best || score > best.score)) best = { id: gesture.id, name: gesture.name, score }
+    let closest = Number.POSITIVE_INFINITY
+    let lastLength = 0
+    for (const tempo of MOTION_TEMPOS) {
+      const length = Math.round(gesture.samples.length * tempo)
+      if (length < 8 || length > poseHistory.length || length === lastLength) continue
+      lastLength = length
+      const window = poseHistory.slice(-length)
+      const energy = motionEnergy(window)
+      if (expectedEnergy > 0.004 && energy < expectedEnergy * 0.35) continue
+      closest = Math.min(closest, sequenceDistance(window, gesture.samples))
+    }
+    const score = Math.max(0, 1 - closest)
+    if (closest <= gesture.threshold && (!best || score > best.score)) best = { id: gesture.id, name: gesture.name, score }
   }
   return best
 }

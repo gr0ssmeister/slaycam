@@ -22,6 +22,7 @@ let notifiedAvailableVersion = ''
 let notifiedDownloadedVersion = ''
 let updaterState = { phase: 'idle', currentVersion: app.getVersion() }
 let virtualCameraProcess
+let virtualCameraFormat = { width: 0, height: 0, fps: 0, bytes: 0 }
 let virtualCameraBackpressure = false
 let virtualCameraState = { phase: 'unsupported', installed: false, streaming: false, message: 'Доступно в Windows-версии' }
 let rendererReady = false
@@ -356,12 +357,35 @@ function stopVirtualCamera() {
   return sendVirtualCameraState({ phase: 'ready', installed: true, streaming: false, message: 'Готова для Discord, Meet и Zoom' })
 }
 
-function startVirtualCamera(width, height, fps) {
+function awaitProcessExit(child) {
+  if (child.exitCode !== null || child.signalCode) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, 1500)
+    child.once('exit', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
+}
+
+async function startVirtualCamera(width, height, fps) {
   if (process.platform !== 'win32' || !virtualCameraFilesAvailable() || !virtualCameraInstalled()) return refreshVirtualCameraState()
-  if (virtualCameraProcess) return virtualCameraState
   const safeWidth = Math.max(320, Math.min(1920, Math.round(Number(width) / 4) * 4))
   const safeHeight = Math.max(180, Math.min(1080, Math.round(Number(height) / 4) * 4))
   const safeFps = Math.max(10, Math.min(30, Math.round(Number(fps))))
+  if (virtualCameraProcess) {
+    const sameFormat = virtualCameraFormat.width === safeWidth
+      && virtualCameraFormat.height === safeHeight
+      && virtualCameraFormat.fps === safeFps
+    if (sameFormat) return virtualCameraState
+    // The running camera was created for the previous frame size. Feeding it the new one
+    // would repeat the picture across the frame, so it is rebuilt for the new format.
+    void writeAppLog('virtual-camera', `Restarting for ${safeWidth}x${safeHeight}@${safeFps} (was ${virtualCameraFormat.width}x${virtualCameraFormat.height}@${virtualCameraFormat.fps})`)
+    const previous = virtualCameraProcess
+    stopVirtualCamera()
+    await awaitProcessExit(previous)
+  }
+  virtualCameraFormat = { width: safeWidth, height: safeHeight, fps: safeFps, bytes: safeWidth * safeHeight * 4 }
   sendVirtualCameraState({ phase: 'starting', installed: true, streaming: false, message: 'Запускаем вывод' })
   const child = spawn(virtualCameraHost(), [virtualCameraDll('x64'), String(safeWidth), String(safeHeight), String(safeFps)], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
   virtualCameraProcess = child
@@ -674,6 +698,9 @@ ipcMain.handle('virtual-camera:start', (_event, width, height, fps) => startVirt
 ipcMain.handle('virtual-camera:stop', () => stopVirtualCamera())
 ipcMain.on('virtual-camera:frame', (_event, frame) => {
   if (!virtualCameraProcess || !virtualCameraState.streaming || virtualCameraBackpressure) return
+  // A frame of the wrong size belongs to a format the running camera no longer uses,
+  // and passing it on would shift every following frame.
+  if (frame.byteLength !== virtualCameraFormat.bytes) return
   const buffer = Buffer.from(frame)
   virtualCameraBackpressure = !virtualCameraProcess.stdin.write(buffer)
 })

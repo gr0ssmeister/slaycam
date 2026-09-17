@@ -25,6 +25,39 @@ const recordingModes: CustomGestureTracking[] = ['hand', 'emotion', 'pose', 'mot
 
 // A take waits here until it is named, so nothing has to be typed before recording.
 type PendingGesture = Pick<CustomGesture, 'samples' | 'threshold' | 'tracking' | 'durationMs' | 'motionEnergy' | 'preview'>
+type PendingTake = { gesture: PendingGesture, frames: string[], intervalMs: number }
+
+// The take plays back in a loop so a bad recording can be spotted before it is saved.
+function TakeReplay({ frames, intervalMs }: { frames: string[], intervalMs: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    if (!frames.length) return
+    const images = frames.map((source) => {
+      const image = new Image()
+      image.src = source
+      return image
+    })
+    let index = 0
+    const paint = () => {
+      const canvas = canvasRef.current
+      const context = canvas?.getContext('2d')
+      const image = images[index % images.length]
+      index += 1
+      if (!canvas || !context || !image.complete || !image.naturalWidth) return
+      if (canvas.width !== image.naturalWidth || canvas.height !== image.naturalHeight) {
+        canvas.width = image.naturalWidth
+        canvas.height = image.naturalHeight
+      }
+      context.drawImage(image, 0, 0)
+    }
+    paint()
+    const timer = window.setInterval(paint, intervalMs)
+    return () => window.clearInterval(timer)
+  }, [frames, intervalMs])
+
+  return <canvas ref={canvasRef} className="take-replay" aria-label="Повтор записи" />
+}
 
 function suggestedName(mode: CustomGestureTracking, index: number) {
   const base = mode === 'motion' ? 'Движение' : mode === 'emotion' ? 'Эмоция' : mode === 'pose' ? 'Поза' : 'Жест'
@@ -121,7 +154,7 @@ export function GesturesPage({
   const [name, setName] = useState('')
   const [mode, setMode] = useState<CustomGestureTracking>('hand')
   const [phase, setPhase] = useState<'idle' | 'countdown' | 'recording' | 'naming' | 'saved'>('idle')
-  const [pending, setPending] = useState<PendingGesture | null>(null)
+  const [pending, setPending] = useState<PendingTake | null>(null)
   const [countdown, setCountdown] = useState(0)
   const [progress, setProgress] = useState(0)
   const [recordError, setRecordError] = useState('')
@@ -130,6 +163,7 @@ export function GesturesPage({
   const latestPoses = useRef(poses)
   const latestFaceBlendshapes = useRef(faceBlendshapes)
   const cancelToken = useRef(0)
+  const replayCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   useEffect(() => { latestHands.current = hands }, [hands])
   useEffect(() => { latestPoses.current = poses }, [poses])
@@ -156,6 +190,22 @@ export function GesturesPage({
       ? `${faces.length ? 'Лицо найдено' : 'Лицо не найдено'}`
       : `${poses.length ? 'Тело найдено' : 'Тело не найдено'}`
 
+  // Frames are grabbed small: the replay only has to show what the camera saw.
+  const captureTakeFrame = () => {
+    const source = canvasRef.current
+    if (!source) return ''
+    const target = replayCanvasRef.current ?? document.createElement('canvas')
+    replayCanvasRef.current = target
+    if (target.width !== 256) {
+      target.width = 256
+      target.height = 144
+    }
+    const context = target.getContext('2d')
+    if (!context) return ''
+    context.drawImage(source, 0, 0, target.width, target.height)
+    return target.toDataURL('image/webp', 0.6)
+  }
+
   const cancelRecord = () => {
     cancelToken.current += 1
     setPending(null)
@@ -166,7 +216,7 @@ export function GesturesPage({
 
   const savePending = () => {
     if (!pending || !name.trim()) return
-    onAdd({ id: crypto.randomUUID(), name: name.trim(), createdAt: new Date().toISOString(), ...pending })
+    onAdd({ id: crypto.randomUUID(), name: name.trim(), createdAt: new Date().toISOString(), ...pending.gesture })
     setPending(null)
     setName('')
     setPhase('saved')
@@ -190,7 +240,7 @@ export function GesturesPage({
     const sampleCount = mode === 'motion' ? 42 : 24
     const interval = mode === 'motion' ? 75 : 70
     const samples: number[][] = []
-    let preview = ''
+    const frames: string[] = []
     for (let index = 0; index < sampleCount; index += 1) {
       await new Promise((resolve) => setTimeout(resolve, interval))
       if (cancelToken.current !== token) return
@@ -201,7 +251,10 @@ export function GesturesPage({
         ? normalizeTwoHandLandmarks(latestHands.current.map((hand) => hand.landmarks))
         : current ? (mode === 'hand' ? normalizeLandmarks(current) : normalizePoseLandmarks(current)) : []
       if (normalized.length) samples.push(normalized)
-      if (index === Math.floor(sampleCount / 2)) preview = canvasRef.current?.toDataURL('image/webp', 0.72) ?? ''
+      if (mode === 'motion' || index % 3 === 0) {
+        const frame = captureTakeFrame()
+        if (frame) frames.push(frame)
+      }
       setProgress((index + 1) / sampleCount)
     }
     const minimum = mode === 'motion' ? 24 : 10
@@ -218,12 +271,16 @@ export function GesturesPage({
     }
     const durationMs = Math.round(samples.length * interval)
     setPending({
-      samples,
-      threshold: mode === 'motion' ? 0.16 : mode === 'emotion' ? 0.1 : 0.22,
-      tracking: mode === 'hand' && recordedHandCount === 2 ? 'two-hands' : mode,
-      durationMs,
-      motionEnergy: mode === 'motion' ? motionEnergy(samples) : undefined,
-      preview,
+      gesture: {
+        samples,
+        threshold: mode === 'motion' ? 0.16 : mode === 'emotion' ? 0.1 : 0.22,
+        tracking: mode === 'hand' && recordedHandCount === 2 ? 'two-hands' : mode,
+        durationMs,
+        motionEnergy: mode === 'motion' ? motionEnergy(samples) : undefined,
+        preview: frames[Math.floor(frames.length / 2)] ?? '',
+      },
+      frames,
+      intervalMs: mode === 'motion' ? interval : interval * 3,
     })
     setName(suggestedName(mode, gestures.length + 1))
     setPhase('naming')
@@ -267,10 +324,13 @@ export function GesturesPage({
               {phase === 'naming' && pending ? (
                 <>
                   <div className="recorder-take">
-                    {pending.preview ? <img src={pending.preview} alt="" /> : <Check />}
+                    {pending.frames.length
+                      ? <TakeReplay frames={pending.frames} intervalMs={pending.intervalMs} />
+                      : pending.gesture.preview ? <img src={pending.gesture.preview} alt="" /> : <Check />}
                     <div>
-                      <strong>Записано</strong>
-                      <small>{pending.tracking === 'motion' ? `${((pending.durationMs ?? 0) / 1000).toFixed(1)} сек · ${pending.samples.length} кадров` : `${pending.samples.length} образца`}</small>
+                      <strong>Повтор записи</strong>
+                      <small>{pending.gesture.tracking === 'motion' ? `${((pending.gesture.durationMs ?? 0) / 1000).toFixed(1)} сек · ${pending.gesture.samples.length} кадров` : `${pending.gesture.samples.length} образца`}</small>
+                      <small>Не то, что хотел — нажми «Записать заново».</small>
                     </div>
                   </div>
                   <label htmlFor="gesture-name">Теперь назови это</label>

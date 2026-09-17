@@ -391,9 +391,9 @@ function SlayCamApp() {
   }
 
   useEffect(() => {
-    if (!virtualCamera.installed || virtualCamera.phase !== 'ready') return
+    if (!loaded || !virtualCamera.installed || !['ready', 'streaming'].includes(virtualCamera.phase)) return
     void window.slaycam.startVirtualCamera(virtualOutputSize.width, virtualOutputSize.height, Math.min(30, config.settings.fps))
-  }, [config.settings.fps, virtualCamera.installed, virtualCamera.phase, virtualOutputSize.height, virtualOutputSize.width])
+  }, [config.settings.fps, loaded, virtualCamera.installed, virtualCamera.phase, virtualOutputSize.height, virtualOutputSize.width])
 
   useEffect(() => {
     if (!loaded || !config.settings.startCameraOnLaunch || autoLaunchAttemptedRef.current) return

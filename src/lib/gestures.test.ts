@@ -45,6 +45,15 @@ describe('pose and motion matching', () => {
     expect(matchMotionGesture(sequence, [gesture])?.id).toBe('wave')
     expect(matchMotionGesture(Array(18).fill(sequence[0]), [gesture])).toBeNull()
   })
+
+  it('matches the same movement performed faster or slower than it was recorded', () => {
+    const wave = (frames: number) => Array.from({ length: frames }, (_, frame) => normalizePoseLandmarks(
+      pose.map((point, index) => ({ ...point, x: point.x + Math.sin((frame / (frames - 1)) * (17 / 4)) * (index > 10 && index < 17 ? 0.08 : 0) })),
+    ))
+    const gesture = { id: 'wave', name: 'Взмах', samples: wave(18), threshold: 0.12, tracking: 'motion' as const, motionEnergy: motionEnergy(wave(18)), createdAt: '' }
+    expect(matchMotionGesture(wave(12), [gesture])?.id).toBe('wave')
+    expect(matchMotionGesture(wave(26), [gesture])?.id).toBe('wave')
+  })
 })
 
 describe('recorded emotion matching', () => {

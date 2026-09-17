@@ -243,8 +243,13 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
       const name = error instanceof DOMException ? error.name : ''
       if (name === 'NotAllowedError') {
         setStatus({ phase: 'denied', message: 'Доступ к камере запрещён. Разрешите его в настройках системы.' })
-      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+      } else if (name === 'NotFoundError') {
         setStatus({ phase: 'missing', message: 'Камера не найдена. Проверьте подключение или выберите другую.' })
+      } else if (name === 'NotReadableError' || name === 'AbortError' || name === 'TrackStartError') {
+        // Windows hands the camera to one application at a time.
+        setStatus({ phase: 'error', message: 'Камера занята другой программой — закройте Zoom, Discord, Skype, OBS или Камеру Windows и попробуйте снова.' })
+      } else if (name === 'OverconstrainedError') {
+        setStatus({ phase: 'missing', message: 'Камера не поддерживает выбранное качество. Выберите другое разрешение в настройках.' })
       } else {
         setStatus({ phase: 'error', message: error instanceof Error ? error.message : 'Не удалось запустить камеру' })
       }

@@ -32,9 +32,14 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
   useEffect(() => { customGesturesRef.current = customGestures }, [customGestures])
 
   const refreshDevices = useCallback(async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) return
-    const available = await navigator.mediaDevices.enumerateDevices()
-    setDevices(available.filter((device) => device.kind === 'videoinput'))
+    const mediaDevices = navigator.mediaDevices
+    if (!mediaDevices?.enumerateDevices) return
+    try {
+      const available = await mediaDevices.enumerateDevices()
+      setDevices(available.filter((device) => device.kind === 'videoinput'))
+    } catch {
+      setDevices([])
+    }
   }, [])
 
   const initializeModels = useCallback(async () => {
@@ -247,7 +252,6 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
   }, [initializeModels, refreshDevices, settings.cameraId, settings.fps, settings.height, settings.inferenceFps, settings.width, stopCamera])
 
   useEffect(() => {
-    void refreshDevices()
     return () => {
       cancelAnimationFrame(frameRef.current)
       streamRef.current?.getTracks().forEach((track) => track.stop())

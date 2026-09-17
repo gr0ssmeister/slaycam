@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld('slaycam', {
   startVirtualCamera: (width, height, fps) => ipcRenderer.invoke('virtual-camera:start', width, height, fps),
   stopVirtualCamera: () => ipcRenderer.invoke('virtual-camera:stop'),
   sendVirtualCameraFrame: (buffer) => ipcRenderer.postMessage('virtual-camera:frame', buffer, [buffer]),
+  rendererMounted: () => ipcRenderer.send('renderer:mounted'),
+  rendererPainted: () => ipcRenderer.send('renderer:painted'),
+  reportRendererError: (details) => ipcRenderer.send('renderer:error', String(details || '').slice(0, 12000)),
+  restartApp: () => ipcRenderer.invoke('app:restart'),
+  showStartupLog: () => ipcRenderer.invoke('app:show-log'),
+  resetConfig: () => ipcRenderer.invoke('config:reset'),
   onWindowMaximized: (handler) => {
     const listener = (_event, maximized) => handler(Boolean(maximized))
     ipcRenderer.on('window:maximized', listener)

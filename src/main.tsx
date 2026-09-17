@@ -1,11 +1,46 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import type { ErrorInfo, ReactNode } from 'react'
 import App from './App'
 import type { UpdateState } from './update'
 import type { VirtualCameraState } from './types'
 import './styles.css'
 
 document.addEventListener('dragstart', (event) => event.preventDefault())
+
+class AppErrorBoundary extends React.Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    window.slaycam.reportRendererError(`${error.stack || error.message}\n${info.componentStack || ''}`)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return <StartupFailure />
+  }
+}
+
+function StartupFailure({ bridgeMissing = false }: { bridgeMissing?: boolean }) {
+  return (
+    <main className="fatal-screen">
+      <section className="fatal-panel">
+        <img src={`${import.meta.env.BASE_URL}brand-icon.png`} alt="" />
+        <h1>SlayCam не загрузился</h1>
+        <p>{bridgeMissing ? 'Служебная часть приложения не подключилась.' : 'Интерфейс остановился при запуске. Настройки можно восстановить без удаления медиатеки.'}</p>
+        {bridgeMissing ? <p className="fatal-hint">Закрой окно и открой SlayCam заново. Если это повторится, переустанови приложение.</p> : <div className="fatal-actions">
+          <button type="button" className="button primary" onClick={() => void window.slaycam.restartApp()}>Перезапустить</button>
+          <button type="button" className="button secondary" onClick={() => { if (window.confirm('Сбросить настройки SlayCam? Медиафайлы останутся на месте.')) void window.slaycam.resetConfig() }}>Сбросить настройки</button>
+          <button type="button" className="button ghost" onClick={() => void window.slaycam.showStartupLog()}>Показать журнал</button>
+        </div>}
+      </section>
+    </main>
+  )
+}
 
 if (import.meta.env.DEV && !window.slaycam) {
   const updateListeners = new Set<(state: UpdateState) => void>()
@@ -81,6 +116,12 @@ if (import.meta.env.DEV && !window.slaycam) {
     startVirtualCamera: async () => previewVirtualCamera,
     stopVirtualCamera: async () => previewVirtualCamera,
     sendVirtualCameraFrame: () => undefined,
+    rendererMounted: () => undefined,
+    rendererPainted: () => undefined,
+    reportRendererError: (details) => console.error(details),
+    restartApp: async () => true,
+    showStartupLog: async () => true,
+    resetConfig: async () => { localStorage.removeItem('slaycam.preview'); window.location.reload(); return true },
     onWindowMaximized: () => () => undefined,
     onUpdateState: (handler) => {
       updateListeners.add(handler)
@@ -93,8 +134,19 @@ if (import.meta.env.DEV && !window.slaycam) {
   }
 }
 
+const bridgeReady = typeof window.slaycam !== 'undefined'
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  bridgeReady ? (
+    <React.StrictMode>
+      <AppErrorBoundary><App /></AppErrorBoundary>
+    </React.StrictMode>
+  ) : <StartupFailure bridgeMissing />,
 )
+
+if (bridgeReady) {
+  window.addEventListener('error', (event) => window.slaycam.reportRendererError(event.error?.stack || event.message))
+  window.addEventListener('unhandledrejection', (event) => window.slaycam.reportRendererError(event.reason?.stack || String(event.reason)))
+  // Two separate signals: the timer proves the bundle ran, the frame proves the window paints.
+  window.setTimeout(() => window.slaycam.rendererMounted(), 0)
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.slaycam.rendererPainted()))
+}

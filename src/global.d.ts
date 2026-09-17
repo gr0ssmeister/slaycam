@@ -33,6 +33,12 @@ declare global {
       startVirtualCamera(width: number, height: number, fps: number): Promise<VirtualCameraState>
       stopVirtualCamera(): Promise<VirtualCameraState>
       sendVirtualCameraFrame(buffer: ArrayBuffer): void
+      rendererMounted(): void
+      rendererPainted(): void
+      reportRendererError(details: string): void
+      restartApp(): Promise<boolean>
+      showStartupLog(): Promise<boolean>
+      resetConfig(): Promise<boolean>
       onWindowMaximized(handler: (maximized: boolean) => void): () => void
       onUpdateState(handler: (state: UpdateState) => void): () => void
       onVirtualCameraState(handler: (state: VirtualCameraState) => void): () => void

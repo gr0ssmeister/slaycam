@@ -125,7 +125,7 @@ async function assetResponse(request, folder) {
   const response = await net.fetch(pathToFileURL(join(folder, requested)).toString())
   const headers = new Headers(response.headers)
   headers.set('Content-Type', mediaMimeTypes.get(extname(requested).toLowerCase()) ?? 'application/octet-stream')
-  headers.set('Cache-Control', 'no-cache')
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable')
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
@@ -597,6 +597,10 @@ ipcMain.on('renderer:painted', (event) => {
   if (rendererPaintTimer) clearTimeout(rendererPaintTimer)
   saveStartupState({ failedAttempts: 0 })
   void writeAppLog('renderer-painted', 'The first frame reached the screen')
+})
+
+ipcMain.on('renderer:performance', (_event, details) => {
+  void writeAppLog('performance', String(details || '').slice(0, 400))
 })
 
 ipcMain.on('renderer:error', (_event, details) => {

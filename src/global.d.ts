@@ -36,6 +36,7 @@ declare global {
       rendererMounted(): void
       rendererPainted(): void
       reportRendererError(details: string): void
+      reportPerformance(details: string): void
       restartApp(): Promise<boolean>
       showStartupLog(): Promise<boolean>
       resetConfig(): Promise<boolean>

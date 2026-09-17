@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('slaycam', {
   },
   rendererMounted: () => ipcRenderer.send('renderer:mounted'),
   rendererPainted: () => ipcRenderer.send('renderer:painted'),
+  reportPerformance: (details) => ipcRenderer.send('renderer:performance', String(details || '').slice(0, 400)),
   reportRendererError: (details) => ipcRenderer.send('renderer:error', String(details || '').slice(0, 12000)),
   restartApp: () => ipcRenderer.invoke('app:restart'),
   showStartupLog: () => ipcRenderer.invoke('app:show-log'),

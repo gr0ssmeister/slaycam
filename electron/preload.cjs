@@ -20,7 +20,13 @@ contextBridge.exposeInMainWorld('slaycam', {
   uninstallVirtualCamera: () => ipcRenderer.invoke('virtual-camera:uninstall'),
   startVirtualCamera: (width, height, fps) => ipcRenderer.invoke('virtual-camera:start', width, height, fps),
   stopVirtualCamera: () => ipcRenderer.invoke('virtual-camera:stop'),
-  sendVirtualCameraFrame: (buffer) => ipcRenderer.postMessage('virtual-camera:frame', buffer, [buffer]),
+  sendVirtualCameraFrame: (buffer) => {
+    try {
+      ipcRenderer.postMessage('virtual-camera:frame', buffer)
+    } catch (error) {
+      ipcRenderer.send('renderer:error', `virtual-camera-frame: ${error?.stack || error}`)
+    }
+  },
   rendererMounted: () => ipcRenderer.send('renderer:mounted'),
   rendererPainted: () => ipcRenderer.send('renderer:painted'),
   reportRendererError: (details) => ipcRenderer.send('renderer:error', String(details || '').slice(0, 12000)),

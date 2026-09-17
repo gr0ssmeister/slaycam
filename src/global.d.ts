@@ -2,6 +2,17 @@ import type { MediaAsset, MediaImportKind, SlayCamConfig, VirtualCameraState } f
 import type { UpdateState } from './update'
 
 declare global {
+  class ImageDecoder {
+    constructor(init: { data: BufferSource, type: string })
+    readonly completed: Promise<void>
+    readonly tracks: {
+      readonly ready: Promise<void>
+      readonly selectedTrack: { readonly animated: boolean, readonly frameCount: number } | null
+    }
+    decode(options?: { frameIndex?: number }): Promise<{ image: VideoFrame }>
+    close(): void
+  }
+
   interface ImportMetaEnv {
     readonly DEV: boolean
     readonly BASE_URL: string

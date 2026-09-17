@@ -23,6 +23,14 @@ const modeInfo: Record<CustomGestureTracking, { title: string; hint: string; ico
 
 const recordingModes: CustomGestureTracking[] = ['hand', 'emotion', 'pose', 'motion']
 
+// A take waits here until it is named, so nothing has to be typed before recording.
+type PendingGesture = Pick<CustomGesture, 'samples' | 'threshold' | 'tracking' | 'durationMs' | 'motionEnergy' | 'preview'>
+
+function suggestedName(mode: CustomGestureTracking, index: number) {
+  const base = mode === 'motion' ? 'Движение' : mode === 'emotion' ? 'Эмоция' : mode === 'pose' ? 'Поза' : 'Жест'
+  return `${base} ${index}`
+}
+
 function drawTrackedSet(context: CanvasRenderingContext2D, landmarks: Point3D[], connections: number[][], mirrored: boolean, color: string, pointRadius = 3.5) {
   const { width, height } = context.canvas
   const pointAt = (index: number) => ({ x: (mirrored ? 1 - landmarks[index].x : landmarks[index].x) * width, y: landmarks[index].y * height })
@@ -112,7 +120,8 @@ export function GesturesPage({
 }) {
   const [name, setName] = useState('')
   const [mode, setMode] = useState<CustomGestureTracking>('hand')
-  const [phase, setPhase] = useState<'idle' | 'countdown' | 'recording' | 'saved'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'countdown' | 'recording' | 'naming' | 'saved'>('idle')
+  const [pending, setPending] = useState<PendingGesture | null>(null)
   const [countdown, setCountdown] = useState(0)
   const [progress, setProgress] = useState(0)
   const [recordError, setRecordError] = useState('')
@@ -149,13 +158,23 @@ export function GesturesPage({
 
   const cancelRecord = () => {
     cancelToken.current += 1
+    setPending(null)
     setPhase('idle')
     setCountdown(0)
     setProgress(0)
   }
 
+  const savePending = () => {
+    if (!pending || !name.trim()) return
+    onAdd({ id: crypto.randomUUID(), name: name.trim(), createdAt: new Date().toISOString(), ...pending })
+    setPending(null)
+    setName('')
+    setPhase('saved')
+    window.setTimeout(() => setPhase('idle'), 1200)
+  }
+
   const record = async () => {
-    if (!name.trim() || !cameraReady || !targetVisible) return
+    if (!cameraReady || !targetVisible) return
     const recordedHandCount = mode === 'hand' ? Math.min(latestHands.current.length, 2) : 0
     const token = ++cancelToken.current
     setRecordError('')
@@ -198,20 +217,16 @@ export function GesturesPage({
       return
     }
     const durationMs = Math.round(samples.length * interval)
-    onAdd({
-      id: crypto.randomUUID(),
-      name: name.trim(),
+    setPending({
       samples,
       threshold: mode === 'motion' ? 0.16 : mode === 'emotion' ? 0.1 : 0.22,
       tracking: mode === 'hand' && recordedHandCount === 2 ? 'two-hands' : mode,
       durationMs,
       motionEnergy: mode === 'motion' ? motionEnergy(samples) : undefined,
       preview,
-      createdAt: new Date().toISOString(),
     })
-    setName('')
-    setPhase('saved')
-    window.setTimeout(() => setPhase('idle'), 1200)
+    setName(suggestedName(mode, gestures.length + 1))
+    setPhase('naming')
   }
 
   return (
@@ -249,16 +264,43 @@ export function GesturesPage({
             </div>
           ) : (
             <div className="recorder-form">
-              <label htmlFor="gesture-name">Как назвать</label>
-              <input id="gesture-name" value={name} onChange={(event) => setName(event.target.value)} placeholder={mode === 'motion' ? 'Например, драматичный взмах' : mode === 'emotion' ? 'Например, мой шок' : 'Например, сердечко'} maxLength={40} />
-              <div className="recorder-actions">
-                <button className="button primary" onClick={record} disabled={!name.trim() || !targetVisible || phase !== 'idle'}>
-                  <Plus /> {mode === 'motion' ? 'Записать движение' : mode === 'emotion' ? 'Записать эмоцию' : 'Записать образец'}
-                </button>
-                {(phase === 'countdown' || phase === 'recording') && <button className="button secondary" onClick={cancelRecord}><X /> Отменить</button>}
-              </div>
-              <p className="field-hint">{mode === 'motion' ? 'После отсчёта будет 3 секунды. Начни и закончи движение в спокойной позе.' : mode === 'emotion' ? 'Смотри в камеру и удерживай нужное выражение лица до конца записи.' : mode === 'hand' ? `Сейчас в кадре: ${hands.length >= 2 ? 'две кисти, запишем общий знак' : 'одна кисть, запишем её знак'}. После отсчёта слегка меняй угол.` : 'После отсчёта слегка меняй угол, не выходя из кадра.'}</p>
-              {!targetVisible && <p className="tracking-warning">{mode === 'hand' ? 'Покажи одну или две кисти целиком' : mode === 'emotion' ? 'Расположи лицо целиком в кадре и посмотри в камеру' : 'Отойди так, чтобы камера видела плечи, руки и корпус'}</p>}
+              {phase === 'naming' && pending ? (
+                <>
+                  <div className="recorder-take">
+                    {pending.preview ? <img src={pending.preview} alt="" /> : <Check />}
+                    <div>
+                      <strong>Записано</strong>
+                      <small>{pending.tracking === 'motion' ? `${((pending.durationMs ?? 0) / 1000).toFixed(1)} сек · ${pending.samples.length} кадров` : `${pending.samples.length} образца`}</small>
+                    </div>
+                  </div>
+                  <label htmlFor="gesture-name">Теперь назови это</label>
+                  <input
+                    id="gesture-name"
+                    autoFocus
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === 'Enter') savePending() }}
+                    placeholder={mode === 'motion' ? 'Например, драматичный взмах' : mode === 'emotion' ? 'Например, мой шок' : 'Например, сердечко'}
+                    maxLength={40}
+                  />
+                  <div className="recorder-actions">
+                    <button className="button primary" onClick={savePending} disabled={!name.trim()}><Check /> Сохранить</button>
+                    <button className="button secondary" onClick={cancelRecord}><X /> Записать заново</button>
+                  </div>
+                  <p className="field-hint">Название можно оставить как есть — оно уже подставлено.</p>
+                </>
+              ) : (
+                <>
+                  <div className="recorder-actions">
+                    <button className="button primary" onClick={record} disabled={!targetVisible || phase !== 'idle'}>
+                      <Plus /> {mode === 'motion' ? 'Записать движение' : mode === 'emotion' ? 'Записать эмоцию' : 'Записать образец'}
+                    </button>
+                    {(phase === 'countdown' || phase === 'recording') && <button className="button secondary" onClick={cancelRecord}><X /> Отменить</button>}
+                  </div>
+                  <p className="field-hint">{mode === 'motion' ? 'После отсчёта будет 3 секунды. Начни и закончи движение в спокойной позе. Название спросим после записи.' : mode === 'emotion' ? 'Смотри в камеру и удерживай нужное выражение лица до конца записи. Название спросим после.' : mode === 'hand' ? `Сейчас в кадре: ${hands.length >= 2 ? 'две кисти, запишем общий знак' : 'одна кисть, запишем её знак'}. После отсчёта слегка меняй угол, название спросим после записи.` : 'После отсчёта слегка меняй угол, не выходя из кадра. Название спросим после записи.'}</p>
+                  {!targetVisible && <p className="tracking-warning">{mode === 'hand' ? 'Покажи одну или две кисти целиком' : mode === 'emotion' ? 'Расположи лицо целиком в кадре и посмотри в камеру' : 'Отойди так, чтобы камера видела плечи, руки и корпус'}</p>}
+                </>
+              )}
               {recordError && <p className="field-error" role="alert">{recordError}</p>}
             </div>
           )}

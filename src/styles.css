@@ -278,6 +278,7 @@ svg { width: 20px; height: 20px; stroke-width: 2; }
 .record-progress span { display: block; width: 100%; height: 100%; background: var(--primary); transform-origin: left; transition: transform 80ms linear; }
 .recorder-take { display: flex; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); }
 .recorder-take img { width: 72px; height: 44px; object-fit: cover; border-radius: 9px; }
+.take-replay { width: 128px; height: 72px; object-fit: cover; border-radius: 9px; background: oklch(0.22 0.03 340); }
 .recorder-take svg { width: 26px; height: 26px; color: var(--primary); }
 .recorder-take div { display: flex; flex-direction: column; gap: 2px; }
 .recorder-take small { color: var(--ink-soft); }

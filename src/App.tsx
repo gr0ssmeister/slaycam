@@ -39,6 +39,7 @@ function SlayCamApp() {
   const audioPlayersRef = useRef(new Map<string, HTMLAudioElement>())
   const effectsRef = useRef<ActiveEffect[]>([])
   const fpsCounterRef = useRef({ frames: 0, startedAt: performance.now() })
+  const perfRef = useRef({ frames: 0, draw: 0, output: 0, startedAt: performance.now() })
   const virtualFrameRef = useRef(0)
   const autoLaunchAttemptedRef = useRef(false)
   const vision = useVision(config.settings, config.gestures)
@@ -187,6 +188,23 @@ function SlayCamApp() {
       return
     }
     let frame = 0
+    // When the virtual camera runs at the capture size there is nothing to rescale,
+    // so the frame is read straight from the preview instead of copying it first.
+    const captureVirtualFrame = (sourceCanvas: HTMLCanvasElement, sourceContext: CanvasRenderingContext2D, size: { width: number, height: number }) => {
+      if (sourceCanvas.width === size.width && sourceCanvas.height === size.height) {
+        return sourceContext.getImageData(0, 0, size.width, size.height)
+      }
+      const outputCanvas = virtualOutputCanvasRef.current ?? document.createElement('canvas')
+      virtualOutputCanvasRef.current = outputCanvas
+      if (outputCanvas.width !== size.width || outputCanvas.height !== size.height) {
+        outputCanvas.width = size.width
+        outputCanvas.height = size.height
+      }
+      const outputContext = outputCanvas.getContext('2d', { willReadFrequently: true })
+      if (!outputContext) return undefined
+      outputContext.drawImage(sourceCanvas, 0, 0, size.width, size.height)
+      return outputContext.getImageData(0, 0, size.width, size.height)
+    }
     const render = (now: number) => {
       const canvas = canvasRef.current
       const video = vision.videoRef.current
@@ -198,22 +216,34 @@ function SlayCamApp() {
         }
         const context = canvas.getContext('2d', { willReadFrequently: true })
         if (context) {
+          const drawStartedAt = performance.now()
           drawScene(context, video, state.config, effectsRef.current, mediaBankRef.current, now, state.background, vision.segmentationRef.current)
           if (state.config.settings.showLandmarks) drawLandmarks(context, [...state.poses, ...state.hands.map((hand) => hand.landmarks)], state.config.settings.mirrorCamera)
+          const drawnAt = performance.now()
           if (state.virtualCamera.streaming && now - virtualFrameRef.current >= 1000 / Math.min(30, state.config.settings.fps)) {
             virtualFrameRef.current = now
-            const outputCanvas = virtualOutputCanvasRef.current ?? document.createElement('canvas')
-            virtualOutputCanvasRef.current = outputCanvas
-            if (outputCanvas.width !== state.virtualOutputSize.width || outputCanvas.height !== state.virtualOutputSize.height) {
-              outputCanvas.width = state.virtualOutputSize.width
-              outputCanvas.height = state.virtualOutputSize.height
+            const outputFrame = captureVirtualFrame(canvas, context, state.virtualOutputSize)
+            if (outputFrame) window.slaycam.sendVirtualCameraFrame(outputFrame.data.buffer)
+          }
+          const meter = perfRef.current
+          meter.frames += 1
+          meter.draw += drawnAt - drawStartedAt
+          meter.output += performance.now() - drawnAt
+          if (now - meter.startedAt >= 5000) {
+            const fps = meter.frames * 1000 / (now - meter.startedAt)
+            // Only a struggling camera is worth a log line; a healthy one stays silent.
+            if (fps < 24) {
+              window.slaycam.reportPerformance([
+                `fps=${fps.toFixed(1)}`,
+                `draw=${(meter.draw / meter.frames).toFixed(1)}ms`,
+                `output=${(meter.output / meter.frames).toFixed(1)}ms`,
+                `effects=${effectsRef.current.length}`,
+                `camera=${canvas.width}x${canvas.height}`,
+                `virtual=${state.virtualCamera.streaming ? `${state.virtualOutputSize.width}x${state.virtualOutputSize.height}` : 'off'}`,
+                `background=${state.background.mode}`,
+              ].join(' '))
             }
-            const outputContext = outputCanvas.getContext('2d', { willReadFrequently: true })
-            if (outputContext) {
-              outputContext.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height)
-              const outputFrame = outputContext.getImageData(0, 0, outputCanvas.width, outputCanvas.height)
-              window.slaycam.sendVirtualCameraFrame(outputFrame.data.buffer)
-            }
+            perfRef.current = { frames: 0, draw: 0, output: 0, startedAt: now }
           }
         }
         fpsCounterRef.current.frames += 1
@@ -251,7 +281,10 @@ function SlayCamApp() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       const now = performance.now()
-      setActiveEffects((current) => current.filter((effect) => effect.endsAt > now))
+      setActiveEffects((current) => {
+        const alive = current.filter((effect) => effect.endsAt > now)
+        return alive.length === current.length ? current : alive
+      })
     }, 120)
     return () => window.clearInterval(timer)
   }, [])

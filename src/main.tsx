@@ -119,6 +119,7 @@ if (import.meta.env.DEV && !window.slaycam) {
     rendererMounted: () => undefined,
     rendererPainted: () => undefined,
     reportRendererError: (details) => console.error(details),
+    reportPerformance: (details) => console.info(details),
     restartApp: async () => true,
     showStartupLog: async () => true,
     resetConfig: async () => { localStorage.removeItem('slaycam.preview'); window.location.reload(); return true },

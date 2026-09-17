@@ -52,17 +52,14 @@ int wmain(int argc, wchar_t** argv) {
     std::puts("READY");
     std::fflush(stdout);
 
+    const std::size_t pixels = static_cast<std::size_t>(width) * height;
     while (readExact(rgba.data(), rgba.size())) {
-        for (int y = 0; y < height; ++y) {
-            const std::size_t sourceRow = static_cast<std::size_t>(y) * width;
-            const std::size_t targetRow = static_cast<std::size_t>(height - y - 1) * width;
-            for (int x = 0; x < width; ++x) {
-                const std::size_t source = (sourceRow + x) * 4;
-                const std::size_t target = (targetRow + x) * 3;
-                bgr[target] = rgba[source + 2];
-                bgr[target + 1] = rgba[source + 1];
-                bgr[target + 2] = rgba[source];
-            }
+        for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
+            const std::size_t source = pixel * 4;
+            const std::size_t target = pixel * 3;
+            bgr[target] = rgba[source + 2];
+            bgr[target + 1] = rgba[source + 1];
+            bgr[target + 2] = rgba[source];
         }
         sendFrame(camera, bgr.data());
     }

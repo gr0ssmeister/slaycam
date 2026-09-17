@@ -1,6 +1,11 @@
 import type { ActiveEffect, BackgroundSettings, MediaAsset, Point3D, SegmentationFrame, SlayCamConfig } from '../types'
 
 type Drawable = HTMLImageElement | HTMLVideoElement
+type DrawSource = Drawable | HTMLCanvasElement
+
+// A meme imported at 4000 px wide would be resampled from scratch on every single frame,
+// so anything wider than a camera frame is shrunk once and drawn from that copy instead.
+const MAX_SOURCE_WIDTH = 1280
 
 let personCanvas: HTMLCanvasElement | undefined
 let maskCanvas: HTMLCanvasElement | undefined
@@ -8,6 +13,7 @@ let cachedSegmentation: SegmentationFrame | undefined
 
 export class MediaBank {
   private items = new Map<string, Drawable>()
+  private scaled = new Map<string, HTMLCanvasElement>()
 
   get(asset: MediaAsset): Drawable {
     const cached = this.items.get(asset.id)
@@ -29,15 +35,39 @@ export class MediaBank {
     return image
   }
 
+  // The drawable ready to be painted this frame, downscaled once when the file is oversized.
+  source(asset: MediaAsset): DrawSource | undefined {
+    const original = this.get(asset)
+    if (!drawableReady(original)) return undefined
+    if (!(original instanceof HTMLImageElement) || original.naturalWidth <= MAX_SOURCE_WIDTH) return original
+    const cached = this.scaled.get(asset.id)
+    if (cached) return cached
+    const canvas = document.createElement('canvas')
+    canvas.width = MAX_SOURCE_WIDTH
+    canvas.height = Math.max(1, Math.round(original.naturalHeight * MAX_SOURCE_WIDTH / original.naturalWidth))
+    const context = canvas.getContext('2d')
+    if (!context) return original
+    context.drawImage(original, 0, 0, canvas.width, canvas.height)
+    this.scaled.set(asset.id, canvas)
+    return canvas
+  }
+
   removeMissing(media: MediaAsset[]) {
     const ids = new Set(media.map((asset) => asset.id))
     for (const [id, item] of this.items) {
       if (!ids.has(id)) {
         if (item instanceof HTMLVideoElement) item.pause()
         this.items.delete(id)
+        this.scaled.delete(id)
       }
     }
   }
+}
+
+function sourceSize(source: DrawSource) {
+  if (source instanceof HTMLVideoElement) return { width: source.videoWidth, height: source.videoHeight }
+  if (source instanceof HTMLImageElement) return { width: source.naturalWidth, height: source.naturalHeight }
+  return { width: source.width, height: source.height }
 }
 
 export function anchorPoint(effect: ActiveEffect, width: number, height: number, mirrored: boolean) {
@@ -125,11 +155,9 @@ export function drawScene(
   for (const effect of [...effects].sort((a, b) => a.rule.layer - b.rule.layer)) {
     const asset = mediaMap.get(effect.mediaId)
     if (!asset) continue
-    const drawable = mediaBank.get(asset)
-    const ready = drawable instanceof HTMLImageElement ? drawable.complete : drawable.readyState >= 2
-    if (!ready) continue
-    const naturalWidth = drawable instanceof HTMLImageElement ? drawable.naturalWidth : drawable.videoWidth
-    const naturalHeight = drawable instanceof HTMLImageElement ? drawable.naturalHeight : drawable.videoHeight
+    const drawable = mediaBank.source(asset)
+    if (!drawable) continue
+    const { width: naturalWidth, height: naturalHeight } = sourceSize(drawable)
     if (!naturalWidth || !naturalHeight) continue
 
     const point = anchorPoint(effect, width, height, config.settings.mirrorCamera)
@@ -173,8 +201,8 @@ export function drawCameraFrame(
     drawVideo(context, video, width, height, config.settings.mirrorCamera, overscan)
     context.restore()
   } else if (background.mode === 'media' && backgroundAsset && mediaBank) {
-    const drawable = mediaBank.get(backgroundAsset)
-    if (drawableReady(drawable)) drawCover(context, drawable, width, height)
+    const drawable = mediaBank.source(backgroundAsset)
+    if (drawable) drawCover(context, drawable, width, height)
     else fillBackground(context, background.color, width, height)
   } else {
     fillBackground(context, background.color, width, height)
@@ -195,9 +223,8 @@ function drawableReady(drawable: Drawable) {
   return drawable instanceof HTMLImageElement ? drawable.complete && drawable.naturalWidth > 0 : drawable.readyState >= 2 && drawable.videoWidth > 0
 }
 
-function drawCover(context: CanvasRenderingContext2D, drawable: Drawable, width: number, height: number) {
-  const sourceWidth = drawable instanceof HTMLImageElement ? drawable.naturalWidth : drawable.videoWidth
-  const sourceHeight = drawable instanceof HTMLImageElement ? drawable.naturalHeight : drawable.videoHeight
+function drawCover(context: CanvasRenderingContext2D, drawable: DrawSource, width: number, height: number) {
+  const { width: sourceWidth, height: sourceHeight } = sourceSize(drawable)
   if (!sourceWidth || !sourceHeight) return
   const scale = Math.max(width / sourceWidth, height / sourceHeight)
   const drawWidth = sourceWidth * scale

@@ -1,4 +1,4 @@
-import { FileVideo, ImageIcon } from 'lucide-react'
+import { FileAudio, FileVideo, ImageIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { MediaAsset } from '../types'
 
@@ -21,10 +21,14 @@ export function MediaPreview({ asset, className = '', alt, animated = true }: {
   }, [animated, asset?.id])
 
   if (!asset || failed) {
-    return asset?.type === 'video'
+    return asset?.type === 'audio'
+      ? <FileAudio className={className} aria-hidden="true" />
+      : asset?.type === 'video'
       ? <FileVideo className={className} aria-hidden="true" />
       : <ImageIcon className={className} aria-hidden="true" />
   }
+
+  if (asset.type === 'audio') return <FileAudio className={className} aria-label={alt ?? `Звук ${asset.name}`} />
 
   if (asset.type === 'video') {
     return (

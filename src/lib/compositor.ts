@@ -1,6 +1,10 @@
-import type { ActiveEffect, MediaAsset, Point3D, SlayCamConfig } from '../types'
+import type { ActiveEffect, BackgroundSettings, MediaAsset, Point3D, SegmentationFrame, SlayCamConfig } from '../types'
 
 type Drawable = HTMLImageElement | HTMLVideoElement
+
+let personCanvas: HTMLCanvasElement | undefined
+let maskCanvas: HTMLCanvasElement | undefined
+let cachedSegmentation: SegmentationFrame | undefined
 
 export class MediaBank {
   private items = new Map<string, Drawable>()
@@ -110,8 +114,11 @@ export function drawScene(
   effects: ActiveEffect[],
   mediaBank: MediaBank,
   now: number,
+  background?: BackgroundSettings,
+  segmentation?: SegmentationFrame | null,
 ) {
-  drawCameraFrame(context, video, config)
+  const backgroundAsset = config.media.find((asset) => asset.id === background?.mediaId)
+  drawCameraFrame(context, video, config, background, backgroundAsset, mediaBank, segmentation)
 
   const { width, height } = context.canvas
   const mediaMap = new Map(config.media.map((asset) => [asset.id, asset]))
@@ -143,21 +150,121 @@ export function drawCameraFrame(
   context: CanvasRenderingContext2D,
   video: HTMLVideoElement,
   config: SlayCamConfig,
+  background?: BackgroundSettings,
+  backgroundAsset?: MediaAsset,
+  mediaBank?: MediaBank,
+  segmentation?: SegmentationFrame | null,
 ) {
   const { width, height } = context.canvas
   context.clearRect(0, 0, width, height)
   context.fillStyle = '#120b10'
   context.fillRect(0, 0, width, height)
-  if (video.readyState >= 2) {
-    context.save()
-    if (config.settings.mirrorCamera) {
-      context.translate(width, 0)
-      context.scale(-1, 1)
-    }
-    context.drawImage(video, 0, 0, width, height)
-    context.restore()
+  if (video.readyState < 2) return
+
+  if (!background || background.mode === 'none' || !segmentation) {
+    drawVideo(context, video, width, height, config.settings.mirrorCamera)
+    return
   }
 
+  if (background.mode === 'blur') {
+    context.save()
+    context.filter = `blur(${Math.max(2, background.blur)}px)`
+    const overscan = Math.max(8, background.blur * 1.8)
+    drawVideo(context, video, width, height, config.settings.mirrorCamera, overscan)
+    context.restore()
+  } else if (background.mode === 'media' && backgroundAsset && mediaBank) {
+    const drawable = mediaBank.get(backgroundAsset)
+    if (drawableReady(drawable)) drawCover(context, drawable, width, height)
+    else fillBackground(context, background.color, width, height)
+  } else {
+    fillBackground(context, background.color, width, height)
+  }
+
+  drawSegmentedPerson(context, video, width, height, config.settings.mirrorCamera, segmentation)
+
+}
+
+function fillBackground(context: CanvasRenderingContext2D, color: string, width: number, height: number) {
+  context.save()
+  context.fillStyle = color || '#e45791'
+  context.fillRect(0, 0, width, height)
+  context.restore()
+}
+
+function drawableReady(drawable: Drawable) {
+  return drawable instanceof HTMLImageElement ? drawable.complete && drawable.naturalWidth > 0 : drawable.readyState >= 2 && drawable.videoWidth > 0
+}
+
+function drawCover(context: CanvasRenderingContext2D, drawable: Drawable, width: number, height: number) {
+  const sourceWidth = drawable instanceof HTMLImageElement ? drawable.naturalWidth : drawable.videoWidth
+  const sourceHeight = drawable instanceof HTMLImageElement ? drawable.naturalHeight : drawable.videoHeight
+  if (!sourceWidth || !sourceHeight) return
+  const scale = Math.max(width / sourceWidth, height / sourceHeight)
+  const drawWidth = sourceWidth * scale
+  const drawHeight = sourceHeight * scale
+  context.drawImage(drawable, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight)
+}
+
+function drawVideo(context: CanvasRenderingContext2D, video: HTMLVideoElement, width: number, height: number, mirrored: boolean, overscan = 0) {
+  context.save()
+  if (mirrored) {
+    context.translate(width, 0)
+    context.scale(-1, 1)
+  }
+  context.drawImage(video, -overscan, -overscan, width + overscan * 2, height + overscan * 2)
+  context.restore()
+}
+
+function drawSegmentedPerson(
+  context: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  width: number,
+  height: number,
+  mirrored: boolean,
+  segmentation: SegmentationFrame,
+) {
+  personCanvas ??= document.createElement('canvas')
+  maskCanvas ??= document.createElement('canvas')
+  if (personCanvas.width !== width || personCanvas.height !== height) {
+    personCanvas.width = width
+    personCanvas.height = height
+  }
+  if (maskCanvas.width !== segmentation.width || maskCanvas.height !== segmentation.height) {
+    maskCanvas.width = segmentation.width
+    maskCanvas.height = segmentation.height
+  }
+
+  const maskContext = maskCanvas.getContext('2d')
+  const personContext = personCanvas.getContext('2d')
+  if (!maskContext || !personContext) return
+
+  if (cachedSegmentation !== segmentation) {
+    const pixels = maskContext.createImageData(segmentation.width, segmentation.height)
+    for (let index = 0; index < segmentation.data.length; index += 1) {
+      const offset = index * 4
+      const confidence = Math.max(0, Math.min(1, (segmentation.data[index] - 0.08) / 0.84))
+      pixels.data[offset] = 255
+      pixels.data[offset + 1] = 255
+      pixels.data[offset + 2] = 255
+      pixels.data[offset + 3] = Math.round(confidence * 255)
+    }
+    maskContext.putImageData(pixels, 0, 0)
+    cachedSegmentation = segmentation
+  }
+
+  personContext.clearRect(0, 0, width, height)
+  drawVideo(personContext, video, width, height, mirrored)
+  personContext.save()
+  personContext.globalCompositeOperation = 'destination-in'
+  personContext.imageSmoothingEnabled = true
+  if (mirrored) {
+    personContext.translate(width, 0)
+    personContext.scale(-1, 1)
+  }
+  personContext.drawImage(maskCanvas, 0, 0, width, height)
+  personContext.restore()
+  personContext.globalCompositeOperation = 'source-over'
+  context.drawImage(personCanvas, 0, 0)
 }
 
 export function drawLandmarks(

@@ -46,5 +46,5 @@ export function MediaSelect({ media, value, onChange }: {
 function mediaKind(asset: MediaAsset) {
   const format = asset.extension.replace('.', '').toUpperCase()
   if (asset.extension === '.gif') return `Анимированный GIF · ${format}`
-  return `${asset.type === 'video' ? 'Видео' : 'Изображение'} · ${format}`
+  return `${asset.type === 'audio' ? 'Звук' : asset.type === 'video' ? 'Видео' : 'Изображение'} · ${format}`
 }

@@ -30,4 +30,10 @@ describe('native animated media preview', () => {
     expect(html).toContain('muted=""')
     expect(html).toContain('preload="auto"')
   })
+
+  it('renders an audio file as a recognizable sound preview', () => {
+    const html = renderToStaticMarkup(<MediaPreview asset={asset('audio', '.mp3')} />)
+    expect(html).toContain('Звук effect.mp3')
+    expect(html).toContain('<svg')
+  })
 })

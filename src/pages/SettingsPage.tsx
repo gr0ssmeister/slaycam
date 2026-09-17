@@ -26,6 +26,7 @@ export function SettingsPage({ settings, devices, updateState, onChange, onRefre
               <label className="field"><span>Частота кадров</span><select value={settings.fps} onChange={(event) => patch('fps', Number(event.target.value))}><option value={24}>24 FPS</option><option value={30}>30 FPS</option><option value={60}>60 FPS</option></select></label>
             </div>
             <Toggle checked={settings.mirrorCamera} onChange={(value) => patch('mirrorCamera', value)} label="Зеркальное отражение" hint="Двигаться в кадре будет привычнее" />
+            <Toggle checked={settings.startCameraOnLaunch} onChange={(value) => patch('startCameraOnLaunch', value)} label="Запускать SlayCam при открытии" hint="Камера и системный вывод включатся автоматически" />
           </div>
         </section>
 

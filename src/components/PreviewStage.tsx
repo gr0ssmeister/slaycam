@@ -1,19 +1,15 @@
 import { Camera, CircleStop, Play, Sparkles } from 'lucide-react'
-import type { ActiveEffect, CameraStatus, GestureReading, MediaAsset } from '../types'
-import { LiveEffects } from './LiveEffects'
+import type { ActiveEffect, CameraStatus, GestureReading, VirtualCameraState } from '../types'
 
 interface PreviewStageProps {
   canvasRef: React.RefObject<HTMLCanvasElement>
   status: CameraStatus
   readings: GestureReading[]
   effects: ActiveEffect[]
-  media: MediaAsset[]
-  frameWidth: number
-  frameHeight: number
-  mirrorCamera: boolean
   cameraOn: boolean
   showFps: boolean
   fps: number
+  virtualCamera: VirtualCameraState
   onStart: () => void
   onStop: () => void
 }
@@ -36,30 +32,27 @@ const gestureLabels: Record<string, string> = {
 
 export function PreviewStage(props: PreviewStageProps) {
   const detected = props.readings[0]
+  const starting = props.status.phase === 'requesting'
+  const idle = props.status.phase === 'idle'
   return (
-    <section className="preview-shell" aria-label="Камера и эффекты">
-      <div className="preview-toolbar">
+    <section className="preview-shell" data-live={props.virtualCamera.streaming} aria-label="Камера и эффекты">
+      {props.cameraOn && <div className="preview-toolbar">
         <div className="camera-state" data-state={props.status.phase}>
           <span className="state-dot" />
-          <span>{props.status.message}</span>
+          <span>Камера работает</span>
         </div>
-      </div>
+        <span className="output-state" data-live={props.virtualCamera.streaming}>{props.virtualCamera.streaming ? 'SlayCam в эфире' : 'Предпросмотр'}</span>
+      </div>}
       <div className="preview-frame">
         <canvas ref={props.canvasRef} width={1280} height={720} />
-        <LiveEffects
-          effects={props.effects}
-          media={props.media}
-          frameWidth={props.frameWidth}
-          frameHeight={props.frameHeight}
-          mirrorCamera={props.mirrorCamera}
-        />
         {!props.cameraOn && (
           <div className="camera-empty">
             <span className="empty-orbit" aria-hidden="true"><Camera /></span>
-            <h2>Камера пока отдыхает</h2>
-            <button className="button primary" onClick={props.onStart}>
+            <h2>{starting ? 'Запускаем SlayCam' : idle ? 'Камера отдыхает' : 'Камера не включилась'}</h2>
+            {!idle && <p>{starting ? 'Подключаем камеру.' : props.status.message}</p>}
+            <button className="button primary studio-start-button" onClick={props.onStart} disabled={starting}>
               <Play aria-hidden="true" />
-              Запустить камеру
+              {starting ? 'Запускаем' : 'Запустить SlayCam'}
             </button>
           </div>
         )}
@@ -77,7 +70,7 @@ export function PreviewStage(props: PreviewStageProps) {
         {props.cameraOn && (
           <button className="button secondary camera-stop-button" onClick={props.onStop}>
             <CircleStop aria-hidden="true" />
-            Остановить камеру
+            Остановить SlayCam
           </button>
         )}
       </div>

@@ -1,7 +1,8 @@
 import { ArrowRight, Hand, ImagePlus, Sparkles } from 'lucide-react'
-import type { ActiveEffect, CameraStatus, GestureReading, SlayCamConfig } from '../types'
+import type { ActiveEffect, AppProfile, BackgroundSettings, CameraStatus, GestureReading, SlayCamConfig, VirtualCameraState } from '../types'
 import { PreviewStage } from '../components/PreviewStage'
 import { MediaPreview } from '../components/MediaPreview'
+import { BackgroundPanel } from '../components/BackgroundPanel'
 
 interface StudioPageProps {
   config: SlayCamConfig
@@ -10,9 +11,13 @@ interface StudioPageProps {
   readings: GestureReading[]
   effects: ActiveEffect[]
   fps: number
+  profile: AppProfile
+  virtualCamera: VirtualCameraState
   onStart: () => void
   onStop: () => void
   onNavigate: (page: 'rules' | 'gestures' | 'media') => void
+  onBackgroundChange: (background: BackgroundSettings) => void
+  onImportBackground: () => void
 }
 
 export function StudioPage(props: StudioPageProps) {
@@ -22,7 +27,7 @@ export function StudioPage(props: StudioPageProps) {
       <header className="page-header studio-header">
         <div>
           <h1>Студия</h1>
-          <p>Проверь жесты, движения и эффекты до звонка.</p>
+          <p><span className="studio-profile-chip">{props.profile.emoji} {props.profile.name}</span> Проверь жесты, движения и эффекты до звонка.</p>
         </div>
         {/* <span className="playful-label">Сияй</span> */}
       </header>
@@ -32,17 +37,15 @@ export function StudioPage(props: StudioPageProps) {
           status={props.status}
           readings={props.readings}
           effects={props.effects}
-          media={props.config.media}
-          frameWidth={props.config.settings.width}
-          frameHeight={props.config.settings.height}
-          mirrorCamera={props.config.settings.mirrorCamera}
           cameraOn={props.status.phase === "ready"}
           showFps={props.config.settings.showFps}
           fps={props.fps}
+          virtualCamera={props.virtualCamera}
           onStart={props.onStart}
           onStop={props.onStop}
         />
         <aside className="studio-rail">
+          <BackgroundPanel value={props.profile.background} media={props.config.media} onChange={props.onBackgroundChange} onImport={props.onImportBackground} />
           <section className="rail-section">
             <div className="section-heading">
               <div>
@@ -118,7 +121,7 @@ export function StudioPage(props: StudioPageProps) {
               </span>
               <div>
                 <strong>Записать движение</strong>
-                <small>Одна/две руки, поза или связка</small>
+                <small>Руки, эмоция, поза или связка</small>
               </div>
             </button>
           </section>

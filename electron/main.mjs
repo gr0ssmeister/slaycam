@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, session, shell } from 'electron'
 import electronUpdater from 'electron-updater'
+import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { spawn, spawnSync } from 'node:child_process'
 import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import crypto from 'node:crypto'
@@ -19,6 +21,9 @@ let currentCheckIsAutomatic = false
 let notifiedAvailableVersion = ''
 let notifiedDownloadedVersion = ''
 let updaterState = { phase: 'idle', currentVersion: app.getVersion() }
+let virtualCameraProcess
+let virtualCameraBackpressure = false
+let virtualCameraState = { phase: 'unsupported', installed: false, streaming: false, message: 'Доступно в Windows-версии' }
 
 const isDev = !app.isPackaged && Boolean(process.env.VITE_DEV_SERVER_URL)
 const isUpdateDemo = isDev && process.env.SLAYCAM_UPDATE_DEMO === '1'
@@ -26,6 +31,10 @@ const updatesSupported = () => app.isPackaged && process.platform === 'win32'
 const configPath = () => join(app.getPath('userData'), 'slaycam.config.json')
 const mediaPath = () => join(app.getPath('userData'), 'media')
 const builtinMediaPath = () => join(app.getAppPath(), isDev ? 'public' : 'dist', 'default-memes')
+const virtualCameraRoot = () => app.isPackaged ? join(process.resourcesPath, 'virtual-camera') : join(app.getAppPath(), 'native-dist', 'virtual-camera')
+const virtualCameraDll = (arch = 'x64') => join(virtualCameraRoot(), arch, 'slaycam-virtualcam.dll')
+const virtualCameraHost = () => join(virtualCameraRoot(), 'x64', 'slaycam-vcam-host.exe')
+const VIRTUAL_CAMERA_CLSID = '{2BB0606F-077B-4B5D-9515-A3E16BACE7AA}'
 
 const mediaMimeTypes = new Map([
   ['.png', 'image/png'],
@@ -36,7 +45,16 @@ const mediaMimeTypes = new Map([
   ['.webm', 'video/webm'],
   ['.mp4', 'video/mp4'],
   ['.mov', 'video/quicktime'],
+  ['.mp3', 'audio/mpeg'],
+  ['.wav', 'audio/wav'],
 ])
+
+const importFilters = {
+  visual: [{ name: 'Картинки и видео', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'webm', 'mp4', 'mov'] }],
+  background: [{ name: 'Фон: картинка или видео', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'webm', 'mp4', 'mov'] }],
+  audio: [{ name: 'Звуки', extensions: ['mp3', 'wav'] }],
+  all: [{ name: 'Медиа SlayCam', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'webm', 'mp4', 'mov', 'mp3', 'wav'] }],
+}
 
 async function assetResponse(request, folder) {
   const requested = basename(decodeURIComponent(new URL(request.url).pathname))
@@ -68,6 +86,7 @@ async function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      spellcheck: false,
     },
   })
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true))
@@ -86,6 +105,94 @@ function sendUpdaterState(next) {
   updaterState = { ...updaterState, ...next, currentVersion }
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updater:state', updaterState)
   return updaterState
+}
+
+function virtualCameraFilesAvailable() {
+  return existsSync(virtualCameraDll('x64')) && existsSync(virtualCameraHost())
+}
+
+function virtualCameraInstalled() {
+  if (process.platform !== 'win32') return false
+  const result = spawnSync('reg.exe', ['query', `HKCR\\CLSID\\${VIRTUAL_CAMERA_CLSID}\\InprocServer32`], { windowsHide: true, encoding: 'utf8' })
+  return result.status === 0
+}
+
+function sendVirtualCameraState(next = {}) {
+  virtualCameraState = { ...virtualCameraState, ...next }
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('virtual-camera:state', virtualCameraState)
+  return virtualCameraState
+}
+
+function refreshVirtualCameraState() {
+  if (process.platform !== 'win32') return sendVirtualCameraState({ phase: 'unsupported', installed: false, streaming: false, message: 'Доступно в Windows-версии' })
+  if (!virtualCameraFilesAvailable()) return sendVirtualCameraState({ phase: 'unavailable', installed: false, streaming: false, message: 'Компонент камеры не вошёл в эту сборку' })
+  if (virtualCameraProcess) return sendVirtualCameraState({ phase: 'streaming', installed: true, streaming: true, message: 'Выбери SlayCam в приложении для звонка' })
+  const installed = virtualCameraInstalled()
+  return sendVirtualCameraState({ phase: installed ? 'ready' : 'not-installed', installed, streaming: false, message: installed ? 'Готова для Discord, Meet и Zoom' : 'Нужна разовая установка' })
+}
+
+function psQuote(value) {
+  return `'${String(value).replaceAll("'", "''")}'`
+}
+
+async function registerVirtualCamera(register) {
+  if (process.platform !== 'win32' || !virtualCameraFilesAvailable()) return refreshVirtualCameraState()
+  sendVirtualCameraState({ phase: 'installing', message: register ? 'Windows попросит разрешение на установку' : 'Удаляем камеру из Windows' })
+  const registerArgs = register ? `${psQuote('/s')}, ` : `${psQuote('/s')}, ${psQuote('/u')}, `
+  const dll64 = psQuote(virtualCameraDll('x64'))
+  const dll32Path = virtualCameraDll('x86')
+  const commands = [
+    `$p = Start-Process -FilePath \"$env:WINDIR\\System32\\regsvr32.exe\" -ArgumentList ${registerArgs}${dll64} -Verb RunAs -Wait -PassThru`,
+    'if ($p.ExitCode -ne 0) { exit $p.ExitCode }',
+  ]
+  if (existsSync(dll32Path)) {
+    commands.push(`$p = Start-Process -FilePath \"$env:WINDIR\\SysWOW64\\regsvr32.exe\" -ArgumentList ${registerArgs}${psQuote(dll32Path)} -Verb RunAs -Wait -PassThru`)
+    commands.push('if ($p.ExitCode -ne 0) { exit $p.ExitCode }')
+  }
+  const encoded = Buffer.from(commands.join('; '), 'utf16le').toString('base64')
+  const exitCode = await new Promise((resolve) => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { windowsHide: true })
+    child.once('error', () => resolve(1))
+    child.once('exit', (code) => resolve(code ?? 1))
+  })
+  if (exitCode !== 0) return sendVirtualCameraState({ phase: 'error', installed: virtualCameraInstalled(), streaming: false, message: 'Установка отменена или Windows не дала доступ' })
+  return refreshVirtualCameraState()
+}
+
+function stopVirtualCamera() {
+  if (!virtualCameraProcess) return refreshVirtualCameraState()
+  sendVirtualCameraState({ phase: 'stopping', message: 'Останавливаем вывод' })
+  const child = virtualCameraProcess
+  virtualCameraProcess = undefined
+  virtualCameraBackpressure = false
+  child.stdin.end()
+  setTimeout(() => { if (!child.killed) child.kill() }, 800)
+  return sendVirtualCameraState({ phase: 'ready', installed: true, streaming: false, message: 'Готова для Discord, Meet и Zoom' })
+}
+
+function startVirtualCamera(width, height, fps) {
+  if (process.platform !== 'win32' || !virtualCameraFilesAvailable() || !virtualCameraInstalled()) return refreshVirtualCameraState()
+  if (virtualCameraProcess) return virtualCameraState
+  const safeWidth = Math.max(320, Math.min(1920, Math.round(Number(width) / 4) * 4))
+  const safeHeight = Math.max(180, Math.min(1080, Math.round(Number(height) / 4) * 4))
+  const safeFps = Math.max(10, Math.min(30, Math.round(Number(fps))))
+  sendVirtualCameraState({ phase: 'starting', installed: true, streaming: false, message: 'Запускаем вывод' })
+  const child = spawn(virtualCameraHost(), [virtualCameraDll('x64'), String(safeWidth), String(safeHeight), String(safeFps)], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+  virtualCameraProcess = child
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', (chunk) => {
+    if (String(chunk).includes('READY')) sendVirtualCameraState({ phase: 'streaming', installed: true, streaming: true, message: 'Выбери SlayCam в приложении для звонка' })
+  })
+  child.once('error', (error) => {
+    virtualCameraProcess = undefined
+    sendVirtualCameraState({ phase: 'error', installed: true, streaming: false, message: error.message || 'Не удалось запустить вывод' })
+  })
+  child.once('exit', (code) => {
+    if (virtualCameraProcess === child) virtualCameraProcess = undefined
+    if (virtualCameraState.phase !== 'stopping') sendVirtualCameraState({ phase: code === 0 ? 'ready' : 'error', installed: true, streaming: false, message: code === 0 ? 'Вывод остановлен' : 'Компонент камеры завершился с ошибкой' })
+  })
+  child.stdin.on('drain', () => { virtualCameraBackpressure = false })
+  return virtualCameraState
 }
 
 function showUpdateNotification(title, body) {
@@ -185,6 +292,7 @@ app.whenReady().then(async () => {
     callback(permission === 'media')
   })
   await createMainWindow()
+  refreshVirtualCameraState()
   await setupAutoUpdater()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
@@ -198,6 +306,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   if (updateCheckTimer) clearInterval(updateCheckTimer)
   updateDemo?.dispose()
+  stopVirtualCamera()
 })
 
 ipcMain.handle('config:load', async () => {
@@ -215,12 +324,13 @@ ipcMain.handle('config:save', async (_event, config) => {
   return true
 })
 
-ipcMain.handle('media:import', async () => {
+ipcMain.handle('media:import', async (_event, kind = 'all') => {
+  const safeKind = Object.hasOwn(importFilters, kind) ? kind : 'all'
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Добавить медиа в SlayCam',
     properties: ['openFile', 'multiSelections'],
     filters: [
-      { name: 'Изображения и видео', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'webm', 'mp4', 'mov'] },
+      ...importFilters[safeKind],
       { name: 'Все файлы', extensions: ['*'] },
     ],
   })
@@ -234,7 +344,7 @@ ipcMain.handle('media:import', async () => {
     imported.push({
       id,
       name: basename(source),
-      type: ['.webm', '.mp4', '.mov'].includes(extension) ? 'video' : 'image',
+      type: ['.mp3', '.wav'].includes(extension) ? 'audio' : ['.webm', '.mp4', '.mov'].includes(extension) ? 'video' : 'image',
       extension,
       src: `slaycam-asset://media/${storedName}`,
       storedName,
@@ -302,4 +412,15 @@ ipcMain.handle('updater:install', () => {
   if (!updatesSupported() || updaterState.phase !== 'downloaded') return false
   setImmediate(() => autoUpdater.quitAndInstall(false, true))
   return true
+})
+
+ipcMain.handle('virtual-camera:get-state', () => refreshVirtualCameraState())
+ipcMain.handle('virtual-camera:install', () => registerVirtualCamera(true))
+ipcMain.handle('virtual-camera:uninstall', () => registerVirtualCamera(false))
+ipcMain.handle('virtual-camera:start', (_event, width, height, fps) => startVirtualCamera(width, height, fps))
+ipcMain.handle('virtual-camera:stop', () => stopVirtualCamera())
+ipcMain.on('virtual-camera:frame', (_event, frame) => {
+  if (!virtualCameraProcess || !virtualCameraState.streaming || virtualCameraBackpressure) return
+  const buffer = Buffer.from(frame)
+  virtualCameraBackpressure = !virtualCameraProcess.stdin.write(buffer)
 })

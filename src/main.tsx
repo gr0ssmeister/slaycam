@@ -2,10 +2,15 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import type { UpdateState } from './update'
+import type { VirtualCameraState } from './types'
 import './styles.css'
+
+document.addEventListener('dragstart', (event) => event.preventDefault())
 
 if (import.meta.env.DEV && !window.slaycam) {
   const updateListeners = new Set<(state: UpdateState) => void>()
+  const virtualCameraListeners = new Set<(state: VirtualCameraState) => void>()
+  const previewVirtualCamera: VirtualCameraState = { phase: 'unsupported', installed: false, streaming: false, message: 'Доступно в Windows-версии' }
   let updateTimer: number | undefined
   let previewUpdateState: UpdateState = {
     phase: 'available',
@@ -70,10 +75,20 @@ if (import.meta.env.DEV && !window.slaycam) {
     toggleMaximizeWindow: async () => false,
     isWindowMaximized: async () => false,
     closeWindow: async () => true,
+    getVirtualCameraState: async () => previewVirtualCamera,
+    installVirtualCamera: async () => previewVirtualCamera,
+    uninstallVirtualCamera: async () => previewVirtualCamera,
+    startVirtualCamera: async () => previewVirtualCamera,
+    stopVirtualCamera: async () => previewVirtualCamera,
+    sendVirtualCameraFrame: () => undefined,
     onWindowMaximized: () => () => undefined,
     onUpdateState: (handler) => {
       updateListeners.add(handler)
       return () => updateListeners.delete(handler)
+    },
+    onVirtualCameraState: (handler) => {
+      virtualCameraListeners.add(handler)
+      return () => virtualCameraListeners.delete(handler)
     },
   }
 }

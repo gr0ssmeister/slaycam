@@ -1,4 +1,4 @@
-import { FileVideo, ImageIcon, ImagePlus, Trash2 } from 'lucide-react'
+import { FileAudio, FileVideo, ImageIcon, ImagePlus, Trash2 } from 'lucide-react'
 import type { MediaAsset } from '../types'
 import { MediaPreview } from '../components/MediaPreview'
 
@@ -10,14 +10,14 @@ export function MediaPage({ media, onImport, onRemove }: {
   return (
     <div className="page media-page">
       <header className="page-header">
-        <div><h1>Медиатека</h1><p>Все картинки, анимации и видео для эффектов.</p></div>
+        <div><h1>Медиатека</h1><p>Картинки, анимации, видео и звуки для эффектов.</p></div>
         <button className="button primary" onClick={onImport}><ImagePlus />Добавить файлы</button>
       </header>
       {media.length === 0 ? (
         <section className="full-empty">
-          <div className="empty-stack" aria-hidden="true"><ImageIcon /><FileVideo /></div>
+          <div className="empty-stack" aria-hidden="true"><ImageIcon /><FileVideo /><FileAudio /></div>
           <h2>Закидывай мемы</h2>
-          <p>Добавь PNG, JPG, JPEG, GIF, WebP, WebM, MP4 или MOV. Файлы копируются в личную папку SlayCam.</p>
+          <p>Добавь PNG, JPG, GIF, WebP, WebM, MP4, MOV, MP3 или WAV. Файлы копируются в личную папку SlayCam.</p>
           <button className="button primary" onClick={onImport}><ImagePlus />Выбрать файлы</button>
         </section>
       ) : (
@@ -29,7 +29,7 @@ export function MediaPage({ media, onImport, onRemove }: {
                 <span className="media-type">{asset.extension.replace('.', '').toUpperCase()}</span>
               </div>
               <div className="media-meta">
-                <div><strong title={asset.name}>{asset.name}</strong><small>{asset.pack ? `${asset.pack} · ` : ''}{asset.extension === '.gif' ? 'Анимированный GIF' : asset.type === 'video' ? 'Видео' : 'Изображение'}</small></div>
+                <div><strong title={asset.name}>{asset.name}</strong><small>{asset.pack ? `${asset.pack} · ` : ''}{asset.extension === '.gif' ? 'Анимированный GIF' : asset.type === 'audio' ? 'Звуковой файл' : asset.type === 'video' ? 'Видео' : 'Изображение'}</small></div>
                 <button className="icon-button danger" aria-label={`Удалить ${asset.name}`} onClick={() => onRemove(asset)}><Trash2 /></button>
               </div>
             </article>

@@ -24,6 +24,9 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Подключить сборку Windows-компонентов
+        uses: microsoft/setup-msbuild@v3
+
       - name: Установить зависимости
         run: npm ci
 
@@ -33,7 +36,15 @@ jobs:
           npm test
 
       - name: Собрать установщик
-        run: npm run build:win
+        shell: pwsh
+        run: |
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            npm run build:win:ci
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { exit $LASTEXITCODE }
+            Write-Host "Сборка не удалась, повтор $($attempt + 1) из 3 через 15 секунд"
+            Start-Sleep -Seconds 15
+          }
         env:
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}

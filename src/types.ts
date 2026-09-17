@@ -1,9 +1,12 @@
-export type MediaType = 'image' | 'video'
+export type MediaType = 'image' | 'video' | 'audio'
 export type TriggerType = 'built-in' | 'custom' | 'emotion'
 export type CustomGestureTracking = 'hand' | 'two-hands' | 'pose' | 'motion' | 'emotion'
 export type Anchor = 'screen-center' | 'screen-top' | 'screen-bottom' | 'screen-top-left' | 'screen-top-right' | 'screen-bottom-left' | 'screen-bottom-right' | 'above-head' | 'face' | 'gesture-hand' | 'left-hand' | 'right-hand'
 export type EffectAnimation = 'pop' | 'fade' | 'slide-up' | 'spin' | 'none'
 export type EffectMode = 'once' | 'while-held'
+export type SoundSource = 'none' | 'file' | 'media'
+export type BackgroundMode = 'none' | 'blur' | 'remove' | 'media'
+export type MediaImportKind = 'visual' | 'audio' | 'background' | 'all'
 
 export interface Point3D {
   x: number
@@ -36,6 +39,7 @@ export interface CustomGesture {
 
 export interface EffectRule {
   id: string
+  profileId: string
   name: string
   enabled: boolean
   triggerType: TriggerType
@@ -56,6 +60,26 @@ export interface EffectRule {
   mirror: boolean
   layer: number
   animation: EffectAnimation
+  soundSource: SoundSource
+  soundEnabled: boolean
+  soundMediaId: string
+  soundVolume: number
+  soundOutputDeviceId: string
+}
+
+export interface BackgroundSettings {
+  mode: BackgroundMode
+  mediaId: string
+  blur: number
+  color: string
+}
+
+export interface AppProfile {
+  id: string
+  name: string
+  emoji: string
+  background: BackgroundSettings
+  createdAt: string
 }
 
 export interface AppSettings {
@@ -67,16 +91,32 @@ export interface AppSettings {
   showLandmarks: boolean
   showFps: boolean
   inferenceFps: number
+  startCameraOnLaunch: boolean
   onboardingComplete: boolean
 }
 
 export interface SlayCamConfig {
-  version: 1
+  version: 3
   media: MediaAsset[]
   gestures: CustomGesture[]
   rules: EffectRule[]
+  profiles: AppProfile[]
+  activeProfileId: string
   installedPacks: string[]
   settings: AppSettings
+}
+
+export interface SegmentationFrame {
+  width: number
+  height: number
+  data: Float32Array
+}
+
+export interface VirtualCameraState {
+  phase: 'unsupported' | 'unavailable' | 'not-installed' | 'installing' | 'ready' | 'starting' | 'streaming' | 'stopping' | 'error'
+  installed: boolean
+  streaming: boolean
+  message: string
 }
 
 export interface GestureReading {

@@ -14,7 +14,7 @@ export function CustomGestureSelect({ gestures, value, onChange }: {
     <div className="custom-trigger-select">
       <button type="button" className="custom-trigger-current" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
         <span className="custom-trigger-thumb"><CustomGesturePreview gesture={selected} /></span>
-        <span className="custom-trigger-copy"><strong>{selected?.name ?? 'Выбери запись'}</strong><small>{selected ? gestureKind(selected) : 'Рука, поза или движение'}</small></span>
+        <span className="custom-trigger-copy"><strong>{selected?.name ?? 'Выбери запись'}</strong><small>{selected ? gestureKind(selected) : 'Руки, эмоция, поза или движение'}</small></span>
         <ChevronDown data-open={open} />
       </button>
       {open && (

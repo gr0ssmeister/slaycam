@@ -1,4 +1,4 @@
-import type { MediaAsset, SlayCamConfig } from './types'
+import type { MediaAsset, MediaImportKind, SlayCamConfig, VirtualCameraState } from './types'
 import type { UpdateState } from './update'
 
 declare global {
@@ -15,7 +15,7 @@ declare global {
     slaycam: {
       loadConfig(): Promise<SlayCamConfig | null>
       saveConfig(config: SlayCamConfig): Promise<boolean>
-      importMedia(): Promise<MediaAsset[]>
+      importMedia(kind?: MediaImportKind): Promise<MediaAsset[]>
       removeMedia(storedName: string): Promise<boolean>
       openExternal(url: string): Promise<boolean>
       getUpdateState(): Promise<UpdateState>
@@ -27,8 +27,15 @@ declare global {
       toggleMaximizeWindow(): Promise<boolean>
       isWindowMaximized(): Promise<boolean>
       closeWindow(): Promise<boolean>
+      getVirtualCameraState(): Promise<VirtualCameraState>
+      installVirtualCamera(): Promise<VirtualCameraState>
+      uninstallVirtualCamera(): Promise<VirtualCameraState>
+      startVirtualCamera(width: number, height: number, fps: number): Promise<VirtualCameraState>
+      stopVirtualCamera(): Promise<VirtualCameraState>
+      sendVirtualCameraFrame(buffer: ArrayBuffer): void
       onWindowMaximized(handler: (maximized: boolean) => void): () => void
       onUpdateState(handler: (state: UpdateState) => void): () => void
+      onVirtualCameraState(handler: (state: VirtualCameraState) => void): () => void
     }
   }
 }

@@ -1,4 +1,4 @@
-import { ArrowRight, Check, ChevronDown, Copy, Eye, ImagePlus, Plus, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ChevronDown, Copy, Eye, Film, ImagePlus, Music2, Plus, SlidersHorizontal, Sparkles, Trash2, VolumeX, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { createRule } from '../config'
 import { MediaPreview } from '../components/MediaPreview'
@@ -6,15 +6,18 @@ import { MediaSelect } from '../components/MediaSelect'
 import { GestureSelect } from '../components/GestureSelect'
 import { EmotionSelect } from '../components/EmotionSelect'
 import { CustomGesturePreview, CustomGestureSelect } from '../components/CustomGestureSelect'
+import { AudioSelect } from '../components/AudioSelect'
 import { ANIMATION_OPTIONS, AnimationPicker } from '../components/AnimationPicker'
 import { findDuplicateRule } from '../lib/rules'
-import type { EffectRule, MediaAsset, CustomGesture, TriggerType } from '../types'
+import type { EffectRule, MediaAsset, CustomGesture, MediaImportKind, SoundSource, TriggerType } from '../types'
 import { ANCHORS, BUILT_IN_EMOTIONS, BUILT_IN_GESTURES } from '../types'
 
 export function RulesPage({
   rules,
   media,
   gestures,
+  profileId,
+  audioDevices,
   selectedId,
   onSelect,
   onCreate,
@@ -28,10 +31,12 @@ export function RulesPage({
   rules: EffectRule[]
   media: MediaAsset[]
   gestures: CustomGesture[]
+  profileId: string
+  audioDevices: MediaDeviceInfo[]
   selectedId: string
   onSelect: (id: string) => void
   onCreate: (rule: EffectRule) => void
-  onImport: () => void
+  onImport: (kind?: MediaImportKind) => void
   onRecordGesture: () => void
   onChange: (rule: EffectRule) => void
   onDuplicate: (rule: EffectRule) => void
@@ -66,12 +71,12 @@ export function RulesPage({
           <span className="empty-spark"><Sparkles /></span>
           <h2>Сначала добавим мем</h2>
           <p>Картинка, GIF или видео появятся в списке, затем выберешь для них триггер.</p>
-          <div className="empty-actions"><button className="button primary" onClick={onImport}><ImagePlus />Добавить мем</button><button className="button secondary" onClick={() => setCreating(true)}><Plus />Открыть черновик</button></div>
+          <div className="empty-actions"><button className="button primary" onClick={() => onImport('visual')}><ImagePlus />Добавить мем</button><button className="button secondary" onClick={() => setCreating(true)}><Plus />Открыть черновик</button></div>
         </section>
       ) : (
         <div className="rule-workspace">
           <aside className="rule-list" aria-label="Список эффектов">
-            {creating && <div className="rule-draft-item"><span><Sparkles /></span><div><strong>Черновик</strong><small>Заполни три шага справа</small></div></div>}
+            {creating && <div className="rule-draft-item"><span><Sparkles /></span><div><strong>Черновик</strong><small>Заполни четыре шага справа</small></div></div>}
             {rules.map((rule) => {
               const asset = media.find((item) => item.id === rule.mediaId)
               const trigger = getRuleTriggerLabel(rule, gestures)
@@ -93,6 +98,8 @@ export function RulesPage({
               gestures={gestures}
               rules={rules}
               onImport={onImport}
+              profileId={profileId}
+              audioDevices={audioDevices}
               onRecordGesture={onRecordGesture}
               onCreate={createEffect}
               onCancel={() => setCreating(false)}
@@ -103,6 +110,8 @@ export function RulesPage({
               rule={selected}
               media={media}
               gestures={gestures}
+              audioDevices={audioDevices}
+              onImport={onImport}
               onChange={onChange}
               onDuplicate={() => onDuplicate(selected)}
               onDelete={() => onDelete(selected)}
@@ -117,11 +126,13 @@ export function RulesPage({
   )
 }
 
-function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onCreate, onCancel, onOpenExisting }: {
+function EffectComposer({ media, gestures, rules, profileId, audioDevices, onImport, onRecordGesture, onCreate, onCancel, onOpenExisting }: {
   media: MediaAsset[]
   gestures: CustomGesture[]
   rules: EffectRule[]
-  onImport: () => void
+  profileId: string
+  audioDevices: MediaDeviceInfo[]
+  onImport: (kind?: MediaImportKind) => void
   onRecordGesture: () => void
   onCreate: (rule: EffectRule) => void
   onCancel: () => void
@@ -135,9 +146,16 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
   const [anchor, setAnchor] = useState<EffectRule['anchor']>('gesture-hand')
   const [durationMs, setDurationMs] = useState(2200)
   const [animation, setAnimation] = useState<EffectRule['animation']>('pop')
+  const [soundSource, setSoundSource] = useState<SoundSource>('none')
+  const [soundMediaId, setSoundMediaId] = useState('')
+  const [soundVolume, setSoundVolume] = useState(0.8)
+  const [soundOutputDeviceId, setSoundOutputDeviceId] = useState('')
   const [name, setName] = useState('')
   const [nameTouched, setNameTouched] = useState(false)
-  const selectedMedia = media.find((item) => item.id === mediaId)
+  const [currentStep, setCurrentStep] = useState(1)
+  const visualMedia = media.filter((item) => item.type !== 'audio')
+  const audioMedia = media.filter((item) => item.type === 'audio')
+  const selectedMedia = visualMedia.find((item) => item.id === mediaId)
   const selectedBuiltInGesture = BUILT_IN_GESTURES.find((item) => item.value === gesture)
   const selectedEmotion = BUILT_IN_EMOTIONS.find((item) => item.value === emotion)
   const triggerLabel = triggerType === 'built-in'
@@ -149,8 +167,16 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
   const suggestedName = selectedMedia ? `${selectedMedia.name.replace(/\.[^.]+$/, '')} · ${triggerName}` : ''
 
   useEffect(() => {
-    if (!mediaId && media[0]) setMediaId(media[0].id)
-  }, [media, mediaId])
+    if (!mediaId && visualMedia[0]) setMediaId(visualMedia[0].id)
+  }, [mediaId, visualMedia])
+
+  useEffect(() => {
+    if (soundSource === 'file' && !soundMediaId && audioMedia[0]) setSoundMediaId(audioMedia[0].id)
+  }, [audioMedia, soundMediaId, soundSource])
+
+  useEffect(() => {
+    if (soundSource === 'media' && selectedMedia?.type !== 'video') setSoundSource('none')
+  }, [selectedMedia?.type, soundSource])
 
   useEffect(() => {
     if (!customGestureId && gestures[0]) setCustomGestureId(gestures[0].id)
@@ -163,10 +189,18 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
   const triggerValue = triggerType === 'emotion' ? emotion : gesture
   const duplicate = useMemo(() => findDuplicateRule(rules, { mediaId, triggerType, gesture: triggerValue, customGestureId }), [customGestureId, mediaId, rules, triggerType, triggerValue])
 
-  const canCreate = Boolean(name.trim() && mediaId && (triggerType === 'custom' ? customGestureId : triggerValue))
+  const soundReady = soundSource === 'none' || (soundSource === 'media' ? selectedMedia?.type === 'video' : Boolean(soundMediaId))
+  const triggerReady = Boolean(triggerType === 'custom' ? customGestureId : triggerValue)
+  const canCreate = Boolean(name.trim() && mediaId && soundReady && triggerReady)
+  const stepReady = currentStep === 1 ? triggerReady : currentStep === 2 ? Boolean(mediaId) : currentStep === 3 ? soundReady : Boolean(name.trim())
+  const soundLabel = soundSource === 'media'
+    ? 'из выбранного видео'
+    : soundSource === 'file'
+      ? audioMedia.find((item) => item.id === soundMediaId)?.name ?? 'выбери файл'
+      : 'без звука'
   const submit = () => {
     if (!canCreate || duplicate) return
-    const rule = createRule(mediaId)
+    const rule = createRule(mediaId, profileId)
     rule.name = name.trim()
     rule.triggerType = triggerType
     rule.gesture = triggerValue
@@ -174,16 +208,26 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
     rule.anchor = anchor
     rule.durationMs = durationMs
     rule.animation = animation
+    rule.soundSource = soundSource
+    rule.soundEnabled = soundSource !== 'none'
+    rule.soundMediaId = soundMediaId
+    rule.soundVolume = soundVolume
+    rule.soundOutputDeviceId = soundOutputDeviceId
     onCreate(rule)
   }
 
   return (
     <section className="effect-composer" aria-label="Создание эффекта">
       <div className="composer-topbar"><div><span className="composer-icon"><Sparkles /></span><div><h2>Новый эффект</h2><p>Сохраним только после проверки.</p></div></div><button className="icon-button" onClick={onCancel} aria-label="Закрыть черновик"><X /></button></div>
-      <div className="composer-steps" aria-label="Шаги создания"><span data-done="true"><i>1</i>Триггер</span><span data-done={Boolean(mediaId)}><i>2</i>Мем</span><span data-done={Boolean(name.trim())}><i>3</i>Готово</span></div>
+      <div className="composer-steps" aria-label="Шаги создания">
+        <button type="button" data-active={currentStep === 1} data-done={triggerReady} onClick={() => setCurrentStep(1)}><i>{triggerReady ? <Check /> : 1}</i>Триггер</button>
+        <button type="button" data-active={currentStep === 2} data-done={Boolean(mediaId)} onClick={() => setCurrentStep(2)}><i>{mediaId ? <Check /> : 2}</i>Мем</button>
+        <button type="button" data-active={currentStep === 3} data-done={soundReady} onClick={() => setCurrentStep(3)}><i>{soundReady ? <Check /> : 3}</i>Звук</button>
+        <button type="button" data-active={currentStep === 4} data-done={Boolean(name.trim())} onClick={() => setCurrentStep(4)}><i>{name.trim() ? <Check /> : 4}</i>Готово</button>
+      </div>
       <div className="composer-layout">
         <div className="composer-fields">
-          <fieldset className="composer-section">
+          {currentStep === 1 && <fieldset className="composer-section">
             <legend><span>1</span><div><strong>Что запускает эффект</strong><small>Жест, твоя запись или выражение лица</small></div></legend>
             <div className="segmented-control" aria-label="Тип триггера">
               <button type="button" data-active={triggerType === 'built-in'} onClick={() => setTriggerType('built-in')}>Готовый жест</button>
@@ -197,37 +241,50 @@ function EffectComposer({ media, gestures, rules, onImport, onRecordGesture, onC
             ) : gestures.length ? (
               <div className="field"><span>Выбери запись</span><CustomGestureSelect gestures={gestures} value={customGestureId} onChange={setCustomGestureId} /></div>
             ) : (
-              <div className="composer-missing"><span>Нет записанных движений</span><button className="button secondary" type="button" onClick={onRecordGesture}>Записать триггер</button></div>
+              <div className="composer-missing"><span>Нет записанных триггеров</span><button className="button secondary" type="button" onClick={onRecordGesture}>Записать триггер</button></div>
             )}
-          </fieldset>
+          </fieldset>}
 
-          <fieldset className="composer-section">
+          {currentStep === 2 && <fieldset className="composer-section">
             <legend><span>2</span><div><strong>Какой мем показать</strong><small>Выбери файл из медиатеки</small></div></legend>
-            {media.length ? (
+            {visualMedia.length ? (
               <div className="composer-media-grid" role="radiogroup" aria-label="Выбор медиа">
-                {media.map((asset) => <button type="button" role="radio" aria-checked={asset.id === mediaId} data-selected={asset.id === mediaId} key={asset.id} onClick={() => setMediaId(asset.id)}><span><MediaPreview asset={asset} alt="" />{asset.id === mediaId && <i><Check /></i>}</span><strong>{asset.name}</strong><small>{getMediaKind(asset)}</small></button>)}
-                <button type="button" className="composer-import-tile" onClick={onImport}><ImagePlus /><strong>Добавить мем</strong></button>
+                {visualMedia.map((asset) => <button type="button" role="radio" aria-checked={asset.id === mediaId} data-selected={asset.id === mediaId} key={asset.id} onClick={() => setMediaId(asset.id)}><span><MediaPreview asset={asset} alt="" />{asset.id === mediaId && <i><Check /></i>}</span><strong>{asset.name}</strong><small>{getMediaKind(asset)}</small></button>)}
+                <button type="button" className="composer-import-tile" onClick={() => onImport('visual')}><ImagePlus /><strong>Добавить мем</strong></button>
               </div>
             ) : (
-              <div className="composer-missing"><span>В медиатеке пока пусто</span><button className="button secondary" type="button" onClick={onImport}><ImagePlus />Добавить мем</button></div>
+              <div className="composer-missing"><span>В медиатеке пока нет картинок или видео</span><button className="button secondary" type="button" onClick={() => onImport('visual')}><ImagePlus />Добавить мем</button></div>
             )}
-          </fieldset>
+          </fieldset>}
 
-          <fieldset className="composer-section composer-finish">
-            <legend><span>3</span><div><strong>Как он появится</strong><small>Остальные параметры можно изменить потом</small></div></legend>
+          {currentStep === 3 && <fieldset className="composer-section composer-sound">
+            <legend><span>3</span><div><strong>Добавить звук</strong><small>Можно оставить эффект без звука</small></div></legend>
+            <SoundSourcePicker value={soundSource} videoAvailable={selectedMedia?.type === 'video'} onChange={setSoundSource} />
+            {soundSource === 'media' && <div className="sound-source-note"><Film /><span>Возьмём оригинальную аудиодорожку из <strong>{selectedMedia?.name}</strong>.</span></div>}
+            {soundSource === 'file' && <div className="field sound-file-field"><span>Звуковой файл</span><AudioSelect audio={audioMedia} value={soundMediaId} onChange={setSoundMediaId} onImport={() => onImport('audio')} /></div>}
+            {soundSource !== 'none' && <div className="sound-options"><label className="range-field"><span><strong>Громкость</strong><output>{Math.round(soundVolume * 100)}%</output></span><input type="range" min="0" max="1" step="0.05" value={soundVolume} onChange={(event) => setSoundVolume(Number(event.target.value))} /></label><label className="field"><span>Куда выводить звук</span><select value={soundOutputDeviceId} onChange={(event) => setSoundOutputDeviceId(event.target.value)}><option value="">Устройство Windows по умолчанию</option>{audioDevices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Динамики ${index + 1}`}</option>)}</select></label></div>}
+          </fieldset>}
+
+          {currentStep === 4 && <fieldset className="composer-section composer-finish">
+            <legend><span>4</span><div><strong>Как он появится</strong><small>Остальные параметры можно изменить потом</small></div></legend>
             <label className="field"><span>Название эффекта</span><input type="text" value={name} maxLength={60} placeholder="Например, Финальный slay" onChange={(event) => { setNameTouched(true); setName(event.target.value) }} /></label>
             <div className="two-fields">
               <label className="field"><span>Положение</span><select value={anchor} onChange={(event) => setAnchor(event.target.value as EffectRule['anchor'])}>{ANCHORS.map((item) => <option value={item.value} key={item.value}>{item.icon} {item.label}</option>)}</select><small>{ANCHORS.find((item) => item.value === anchor)?.hint}</small></label>
               <label className="field"><span>На сколько</span><select value={durationMs} onChange={(event) => setDurationMs(Number(event.target.value))}><option value={1500}>1,5 секунды</option><option value={2200}>2,2 секунды</option><option value={4000}>4 секунды</option><option value={8000}>8 секунд</option></select></label>
             </div>
             <div className="field animation-field"><span>Анимация появления</span><AnimationPicker value={animation} onChange={setAnimation} asset={selectedMedia} /></div>
-          </fieldset>
+          </fieldset>}
+
+          <div className="composer-nav">
+            {currentStep > 1 ? <button type="button" className="button ghost" onClick={() => setCurrentStep((step) => step - 1)}><ArrowLeft />Назад</button> : <span />}
+            {currentStep < 4 && <button type="button" className="button primary" disabled={!stepReady} onClick={() => setCurrentStep((step) => step + 1)}>Дальше<ArrowRight /></button>}
+          </div>
         </div>
 
         <aside className="composer-summary">
           <h3>Получится так</h3>
           <div className="composer-equation"><span className="composer-trigger-preview">{triggerType === 'built-in' ? selectedBuiltInGesture?.emoji ?? <Sparkles /> : triggerType === 'emotion' ? selectedEmotion?.emoji ?? '🙂' : <CustomGesturePreview gesture={gestures.find((item) => item.id === customGestureId)} />}</span><strong>{triggerLabel}</strong><ArrowRight /><div className="composer-result-media"><span className="composer-summary-media">{selectedMedia ? <MediaPreview asset={selectedMedia} alt="" /> : <ImagePlus />}</span><strong className="composer-media-name">{selectedMedia?.name ?? 'Выбери мем'}</strong></div></div>
-          <dl><div><dt>Положение</dt><dd>{ANCHORS.find((item) => item.value === anchor)?.icon} {ANCHORS.find((item) => item.value === anchor)?.label}</dd></div><div><dt>Появление</dt><dd>{ANIMATION_OPTIONS.find((item) => item.value === animation)?.label}</dd></div><div><dt>Длительность</dt><dd>{(durationMs / 1000).toLocaleString('ru-RU')} сек</dd></div></dl>
+          <dl><div><dt>Положение</dt><dd>{ANCHORS.find((item) => item.value === anchor)?.icon} {ANCHORS.find((item) => item.value === anchor)?.label}</dd></div><div><dt>Появление</dt><dd>{ANIMATION_OPTIONS.find((item) => item.value === animation)?.label}</dd></div><div><dt>Звук</dt><dd>{soundLabel}</dd></div><div><dt>Длительность</dt><dd>{(durationMs / 1000).toLocaleString('ru-RU')} сек</dd></div></dl>
           {duplicate && <div className="duplicate-notice"><strong>Такая связка уже есть</strong><span>{duplicate.name}</span></div>}
           {duplicate ? <button className="button primary" onClick={() => onOpenExisting(duplicate.id)}>Открыть этот эффект</button> : <button className="button primary" onClick={submit} disabled={!canCreate}><Check />Создать эффект</button>}
           <button className="button ghost" onClick={onCancel}>Отменить создание</button>
@@ -258,16 +315,47 @@ function getRuleTriggerLabel(rule: EffectRule, gestures: CustomGesture[]) {
   return gesture ? `${gesture.emoji} ${gesture.label}` : rule.gesture
 }
 
-function RuleEditor({ rule, media, gestures, onChange, onDuplicate, onDelete, onTest }: {
+function SoundSourcePicker({ value, videoAvailable, onChange }: {
+  value: SoundSource
+  videoAvailable: boolean
+  onChange: (value: SoundSource) => void
+}) {
+  return (
+    <div className="sound-source-picker" role="radiogroup" aria-label="Источник звука">
+      <button type="button" role="radio" aria-checked={value === 'none'} data-active={value === 'none'} onClick={() => onChange('none')}>
+        <VolumeX /><span><strong>Без звука</strong><small>Только мем</small></span>
+      </button>
+      <button type="button" role="radio" aria-checked={value === 'media'} data-active={value === 'media'} disabled={!videoAvailable} onClick={() => onChange('media')}>
+        <Film /><span><strong>Из видео</strong><small>{videoAvailable ? 'Оригинальная дорожка' : 'Сначала выбери видео'}</small></span>
+      </button>
+      <button type="button" role="radio" aria-checked={value === 'file'} data-active={value === 'file'} onClick={() => onChange('file')}>
+        <Music2 /><span><strong>Отдельный файл</strong><small>MP3, WAV или видео</small></span>
+      </button>
+    </div>
+  )
+}
+
+function RuleEditor({ rule, media, gestures, audioDevices, onImport, onChange, onDuplicate, onDelete, onTest }: {
   rule: EffectRule
   media: MediaAsset[]
   gestures: CustomGesture[]
+  audioDevices: MediaDeviceInfo[]
+  onImport: (kind?: MediaImportKind) => void
   onChange: (rule: EffectRule) => void
   onDuplicate: () => void
   onDelete: () => void
   onTest: () => void
 }) {
+  const visualMedia = media.filter((item) => item.type !== 'audio')
+  const audioMedia = media.filter((item) => item.type === 'audio')
+  const selectedVisual = visualMedia.find((item) => item.id === rule.mediaId)
   const patch = <K extends keyof EffectRule>(key: K, value: EffectRule[K]) => onChange({ ...rule, [key]: value })
+  const selectMedia = (mediaId: string) => {
+    const nextMedia = visualMedia.find((item) => item.id === mediaId)
+    const dropMediaSound = rule.soundSource === 'media' && nextMedia?.type !== 'video'
+    onChange({ ...rule, mediaId, ...(dropMediaSound ? { soundSource: 'none' as const, soundEnabled: false } : {}) })
+  }
+  const selectSoundSource = (soundSource: SoundSource) => onChange({ ...rule, soundSource, soundEnabled: soundSource !== 'none' })
   const selectBuiltInTrigger = () => onChange({ ...rule, triggerType: 'built-in', gesture: BUILT_IN_GESTURES.some((gesture) => gesture.value === rule.gesture) ? rule.gesture : 'Thumb_Up', customGestureId: undefined })
   const selectCustomTrigger = () => onChange({ ...rule, triggerType: 'custom', customGestureId: rule.customGestureId ?? gestures[0]?.id })
   const selectEmotionTrigger = () => onChange({ ...rule, triggerType: 'emotion', gesture: BUILT_IN_EMOTIONS.some((emotion) => emotion.value === rule.gesture) ? rule.gesture : 'smile', customGestureId: undefined })
@@ -309,13 +397,21 @@ function RuleEditor({ rule, media, gestures, onChange, onDuplicate, onDelete, on
 
         <fieldset className="editor-section">
           <legend><span>2</span>Что показать</legend>
-          <div className="field"><span>Медиафайл</span><MediaSelect media={media} value={rule.mediaId} onChange={(id) => patch('mediaId', id)} /></div>
+          <div className="field"><span>Медиафайл</span><MediaSelect media={visualMedia} value={rule.mediaId} onChange={selectMedia} /></div>
           <label className="field"><span>Положение в кадре</span><select value={rule.anchor} onChange={(event) => patch('anchor', event.target.value as EffectRule['anchor'])}>{ANCHORS.map((anchor) => <option value={anchor.value} key={anchor.value}>{anchor.icon} {anchor.label}</option>)}</select><small>{ANCHORS.find((anchor) => anchor.value === rule.anchor)?.hint}</small></label>
           <div className="two-fields">
             <label className="range-field"><span><strong>Размер</strong><output>{Math.round(rule.scale * 100)}%</output></span><input type="range" min="0.08" max="1.2" step="0.01" value={rule.scale} onChange={(event) => patch('scale', Number(event.target.value))} /></label>
             <label className="range-field"><span><strong>Прозрачность</strong><output>{Math.round(rule.opacity * 100)}%</output></span><input type="range" min="0.1" max="1" step="0.01" value={rule.opacity} onChange={(event) => patch('opacity', Number(event.target.value))} /></label>
           </div>
-          <div className="field animation-field"><span>Появление</span><AnimationPicker value={rule.animation} onChange={(animation) => patch('animation', animation)} asset={media.find((item) => item.id === rule.mediaId)} /></div>
+          <div className="field animation-field"><span>Появление</span><AnimationPicker value={rule.animation} onChange={(animation) => patch('animation', animation)} asset={visualMedia.find((item) => item.id === rule.mediaId)} /></div>
+        </fieldset>
+
+        <fieldset className="editor-section sound-editor-section">
+          <legend><span>3</span>Как звучит</legend>
+          <SoundSourcePicker value={rule.soundSource} videoAvailable={selectedVisual?.type === 'video'} onChange={selectSoundSource} />
+          {rule.soundSource === 'media' && <div className="sound-source-note"><Film /><span>Звук будет взят из <strong>{selectedVisual?.name}</strong>.</span></div>}
+          {rule.soundSource === 'file' && <div className="field sound-file-field"><span>Звуковой файл</span><AudioSelect audio={audioMedia} value={rule.soundMediaId} onChange={(id) => patch('soundMediaId', id)} onImport={() => onImport('audio')} /></div>}
+          {rule.soundSource !== 'none' && <div className="sound-options"><label className="range-field"><span><strong>Громкость</strong><output>{Math.round(rule.soundVolume * 100)}%</output></span><input type="range" min="0" max="1" step="0.05" value={rule.soundVolume} onChange={(event) => patch('soundVolume', Number(event.target.value))} /></label><label className="field"><span>Устройство вывода</span><select value={rule.soundOutputDeviceId} onChange={(event) => patch('soundOutputDeviceId', event.target.value)}><option value="">Устройство Windows по умолчанию</option>{audioDevices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Динамики ${index + 1}`}</option>)}</select></label></div>}
         </fieldset>
 
         <details className="advanced-settings">

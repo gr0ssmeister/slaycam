@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FaceLandmarker, FilesetResolver, GestureRecognizer, PoseLandmarker } from '@mediapipe/tasks-vision'
-import type { AppSettings, CameraStatus, CustomGesture, GestureReading, Point3D } from '../types'
+import type { AppSettings, CameraStatus, CustomGesture, GestureReading, Point3D, SegmentationFrame } from '../types'
 import { blendshapeVector, emotionReadings } from '../lib/emotions'
 import { matchCustomEmotion, matchCustomGesture, matchCustomPose, matchCustomTwoHandGesture, matchMotionGesture, normalizePoseLandmarks } from '../lib/gestures'
 
@@ -16,6 +16,7 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
   const lastFaceInferenceRef = useRef(0)
   const poseHistoryRef = useRef<number[][]>([])
   const customGesturesRef = useRef(customGestures)
+  const segmentationRef = useRef<SegmentationFrame | null>(null)
   const [status, setStatus] = useState<CameraStatus>({
     phase: "idle",
     message: "Камера выключена",
@@ -59,7 +60,7 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
       minPoseDetectionConfidence: 0.45,
       minPosePresenceConfidence: 0.45,
       minTrackingConfidence: 0.45,
-      outputSegmentationMasks: false,
+      outputSegmentationMasks: true,
     })
     const createFace = (delegate: 'GPU' | 'CPU') => FaceLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: faceModelPath, delegate },
@@ -102,6 +103,7 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
     setPoses([])
     setFaces([])
     setFaceBlendshapes([])
+    segmentationRef.current = null
     setStatus({ phase: "idle", message: "Камера выключена" });
   }, [])
 
@@ -192,9 +194,20 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
           try {
             const result = pose.detectForVideo(video, now)
             latestPoses = result.landmarks.map((rawLandmarks) => rawLandmarks.map(({ x, y, z }) => ({ x, y, z })) as Point3D[])
+            const mask = result.segmentationMasks?.[0]
+            if (mask) {
+              segmentationRef.current = {
+                width: mask.width,
+                height: mask.height,
+                data: new Float32Array(mask.getAsFloat32Array()),
+              }
+            } else {
+              segmentationRef.current = null
+            }
             const normalized = latestPoses[0] ? normalizePoseLandmarks(latestPoses[0]) : []
             if (normalized.length) poseHistoryRef.current = [...poseHistoryRef.current.slice(-89), normalized]
             setPoses(latestPoses)
+            result.close()
             inferenceUpdated = true
           } catch (error) {
             console.warn('Pose frame skipped', error)
@@ -244,5 +257,5 @@ export function useVision(settings: AppSettings, customGestures: CustomGesture[]
     }
   }, [refreshDevices])
 
-  return { videoRef, status, devices, readings, hands, poses, faces, faceBlendshapes, modelReady, startCamera, stopCamera, refreshDevices }
+  return { videoRef, segmentationRef, status, devices, readings, hands, poses, faces, faceBlendshapes, modelReady, startCamera, stopCamera, refreshDevices }
 }

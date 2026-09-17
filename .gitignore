@@ -18,6 +18,7 @@ coverage/
 .vite/
 .electron/
 .electron-builder-cache/
+native-cache/
 *.tsbuildinfo
 
 # Files generated from TypeScript build configuration

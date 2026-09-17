@@ -31,16 +31,53 @@ $source = (Get-Content $frameBufferSource -Raw).Replace('DirectShow Softcam/Name
 Set-Content -Path $frameBufferSource -Value $source -Encoding UTF8
 
 # Keep the camera self-contained: friends should not need to install the Visual C++ runtime.
+# Every library in the final DLL must use the same runtime. In particular, BaseClasses
+# does not declare RuntimeLibrary in Release by default and would otherwise fall back to
+# /MD while softcamcore uses /MT, which breaks the Win32 linker.
 Get-ChildItem (Join-Path $softcamRoot "src") -Filter "*.vcxproj" -Recurse | ForEach-Object {
-  $project = Get-Content $_.FullName -Raw
-  $project = $project.Replace('msvcrt.lib;', '')
-  $project = $project.Replace('<ConformanceMode>true</ConformanceMode>', '<ConformanceMode>true</ConformanceMode><RuntimeLibrary>MultiThreaded</RuntimeLibrary>')
-  Set-Content -Path $_.FullName -Value $project -Encoding UTF8
+  $projectPath = $_.FullName
+  [xml]$project = Get-Content $projectPath -Raw
+  $namespace = $project.Project.NamespaceURI
+  $namespaceManager = New-Object System.Xml.XmlNamespaceManager($project.NameTable)
+  $namespaceManager.AddNamespace("msbuild", $namespace)
+
+  $releaseCompilers = $project.SelectNodes(
+    "//msbuild:ItemDefinitionGroup[contains(@Condition, 'Release')]/msbuild:ClCompile",
+    $namespaceManager
+  )
+
+  foreach ($compiler in $releaseCompilers) {
+    $runtime = $compiler.SelectSingleNode("msbuild:RuntimeLibrary", $namespaceManager)
+    if ($null -eq $runtime) {
+      $runtime = $project.CreateElement("RuntimeLibrary", $namespace)
+      [void]$compiler.AppendChild($runtime)
+    }
+    $runtime.InnerText = "MultiThreaded"
+  }
+
+  $dependencies = $project.SelectNodes("//msbuild:AdditionalDependencies", $namespaceManager)
+  foreach ($dependencyList in $dependencies) {
+    $dependencyList.InnerText = $dependencyList.InnerText.Replace("msvcrt.lib;", "")
+  }
+
+  $project.Save($projectPath)
 }
 
-msbuild (Join-Path $softcamRoot "softcam.sln") /m /t:softcam /p:Configuration=Release /p:Platform=x64
-msbuild (Join-Path $softcamRoot "softcam.sln") /m /t:softcam /p:Configuration=Release /p:Platform=Win32
-msbuild (Join-Path $projectRoot "native\virtual-camera\SlayCamVcamHost.vcxproj") /m /p:Configuration=Release /p:Platform=x64
+function Invoke-MSBuild {
+  param(
+    [Parameter(Mandatory = $true)][string]$Project,
+    [Parameter(Mandatory = $true)][string[]]$Arguments
+  )
+
+  & msbuild $Project @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "MSBuild failed for $Project with exit code $LASTEXITCODE"
+  }
+}
+
+Invoke-MSBuild -Project (Join-Path $softcamRoot "softcam.sln") -Arguments @("/m", "/t:softcam", "/p:Configuration=Release", "/p:Platform=x64")
+Invoke-MSBuild -Project (Join-Path $softcamRoot "softcam.sln") -Arguments @("/m", "/t:softcam", "/p:Configuration=Release", "/p:Platform=Win32")
+Invoke-MSBuild -Project (Join-Path $projectRoot "native\virtual-camera\SlayCamVcamHost.vcxproj") -Arguments @("/m", "/p:Configuration=Release", "/p:Platform=x64")
 
 Copy-Item (Join-Path $softcamRoot "dist\bin\x64\softcam.dll") (Join-Path $outputRoot "x64\slaycam-virtualcam.dll") -Force
 Copy-Item (Join-Path $softcamRoot "dist\bin\Win32\softcam.dll") (Join-Path $outputRoot "x86\slaycam-virtualcam.dll") -Force

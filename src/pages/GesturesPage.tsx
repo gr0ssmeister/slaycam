@@ -330,7 +330,7 @@ export function GesturesPage({
                     <div>
                       <strong>Повтор записи</strong>
                       <small>{pending.gesture.tracking === 'motion' ? `${((pending.gesture.durationMs ?? 0) / 1000).toFixed(1)} сек · ${pending.gesture.samples.length} кадров` : `${pending.gesture.samples.length} образца`}</small>
-                      <small>Не то, что хотел — нажми «Записать заново».</small>
+                      <small>Если нужно перезаписать, нажмите кнопку ниже.</small>
                     </div>
                   </div>
                   <label htmlFor="gesture-name">Теперь назови это</label>
@@ -347,7 +347,7 @@ export function GesturesPage({
                     <button className="button primary" onClick={savePending} disabled={!name.trim()}><Check /> Сохранить</button>
                     <button className="button secondary" onClick={cancelRecord}><X /> Записать заново</button>
                   </div>
-                  <p className="field-hint">Название можно оставить как есть — оно уже подставлено.</p>
+                  <p className="field-hint">Название уже подставлено. Его можно оставить или изменить.</p>
                 </>
               ) : (
                 <>

@@ -78,3 +78,6 @@ design-system/
 .github/instructions/
 .github/prompts/
 .github/agents/
+
+# Локальный конспект работы, не для репозитория
+SESSION-NOTES.md

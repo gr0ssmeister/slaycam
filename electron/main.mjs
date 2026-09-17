@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, session, shell } from 'electron'
 import electronUpdater from 'electron-updater'
-import { existsSync } from 'node:fs'
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFile, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { spawn, spawnSync } from 'node:child_process'
 import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -24,6 +24,12 @@ let updaterState = { phase: 'idle', currentVersion: app.getVersion() }
 let virtualCameraProcess
 let virtualCameraBackpressure = false
 let virtualCameraState = { phase: 'unsupported', installed: false, streaming: false, message: 'Доступно в Windows-версии' }
+let rendererReady = false
+let rendererReadyTimer
+let rendererRevealTimer
+let rendererPaintTimer
+let rendererPainted = false
+let appExiting = false
 
 const isDev = !app.isPackaged && Boolean(process.env.VITE_DEV_SERVER_URL)
 const isUpdateDemo = isDev && process.env.SLAYCAM_UPDATE_DEMO === '1'
@@ -35,6 +41,64 @@ const virtualCameraRoot = () => app.isPackaged ? join(process.resourcesPath, 'vi
 const virtualCameraDll = (arch = 'x64') => join(virtualCameraRoot(), arch, 'slaycam-virtualcam.dll')
 const virtualCameraHost = () => join(virtualCameraRoot(), 'x64', 'slaycam-vcam-host.exe')
 const VIRTUAL_CAMERA_CLSID = '{2BB0606F-077B-4B5D-9515-A3E16BACE7AA}'
+const appLogPath = () => join(app.getPath('userData'), 'slaycam.log')
+
+async function writeAppLog(scope, details) {
+  try {
+    const message = typeof details === 'string' ? details : JSON.stringify(details)
+    await appendFile(appLogPath(), `[${new Date().toISOString()}] ${scope}: ${message}\n`, 'utf8')
+  } catch {
+    // Logging must never become another startup failure.
+  }
+}
+
+const startupStatePath = () => join(app.getPath('userData'), 'slaycam.startup.json')
+
+function readStartupState() {
+  try {
+    const stored = JSON.parse(readFileSync(startupStatePath(), 'utf8'))
+    return {
+      failedAttempts: Number(stored.failedAttempts) || 0,
+      softwareRendering: Boolean(stored.softwareRendering),
+      skipPaintWatchdog: Boolean(stored.skipPaintWatchdog),
+    }
+  } catch {
+    return { failedAttempts: 0, softwareRendering: false, skipPaintWatchdog: false }
+  }
+}
+
+function writeStartupState(state) {
+  try {
+    mkdirSync(app.getPath('userData'), { recursive: true })
+    writeFileSync(startupStatePath(), JSON.stringify(state), 'utf8')
+  } catch {
+    // A missing marker only costs us the next self-repair, never the launch.
+  }
+}
+
+// Two launches in a row that never painted the interface mean the GPU path is broken
+// on this machine, so the third one draws in software instead of showing an empty window.
+const previousStartup = readStartupState()
+const softwareRendering = previousStartup.softwareRendering
+  || previousStartup.failedAttempts >= 2
+  || process.argv.includes('--slaycam-software-rendering')
+
+if (softwareRendering) {
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('disable-gpu-compositing')
+}
+
+let startupState = {
+  failedAttempts: previousStartup.failedAttempts + 1,
+  softwareRendering,
+  skipPaintWatchdog: previousStartup.skipPaintWatchdog,
+}
+writeStartupState(startupState)
+
+function saveStartupState(patch) {
+  startupState = { ...startupState, ...patch }
+  writeStartupState(startupState)
+}
 
 const mediaMimeTypes = new Map([
   ['.png', 'image/png'],
@@ -71,6 +135,8 @@ function rendererUrl(query = '') {
 }
 
 async function createMainWindow() {
+  rendererReady = false
+  rendererPainted = false
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -78,7 +144,13 @@ async function createMainWindow() {
     minHeight: 720,
     backgroundColor: '#f4edf2',
     title: 'SlayCam',
-    frame: false,
+    show: false,
+    ...(process.platform === 'win32'
+      ? {
+          titleBarStyle: 'hidden',
+          titleBarOverlay: { color: '#f8e8f1', symbolColor: '#76224f', height: 42 },
+        }
+      : { frame: false }),
     icon: join(app.getAppPath(), isDev ? 'public/brand-icon.png' : 'dist/brand-icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
@@ -87,11 +159,124 @@ async function createMainWindow() {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      backgroundThrottling: false,
     },
+  })
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    void writeAppLog('preload-error', `${preloadPath}: ${error?.stack || error}`)
+  })
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    void writeAppLog('did-fail-load', `${errorCode} ${errorDescription} ${validatedURL}`)
+  })
+  mainWindow.webContents.on('render-process-gone', async (_event, details) => {
+    void writeAppLog('render-process-gone', details)
+    if (appExiting || !mainWindow || mainWindow.isDestroyed()) return
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      title: 'SlayCam остановился',
+      message: 'Интерфейс SlayCam неожиданно закрылся.',
+      detail: 'Перезапусти приложение. Если это повторится, SlayCam сохранит технический журнал для следующего исправления.',
+      buttons: ['Перезапустить', 'Закрыть'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+    if (result.response === 0) {
+      app.relaunch()
+      app.exit(0)
+    } else {
+      mainWindow.close()
+    }
   })
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized', false))
   await mainWindow.loadURL(rendererUrl())
+  rendererRevealTimer = setTimeout(() => {
+    if (rendererReady || !mainWindow || mainWindow.isDestroyed()) return
+    void writeAppLog('startup-slow', 'Renderer stayed silent for 4 seconds, showing the window anyway')
+    mainWindow.show()
+  }, 4000)
+  rendererReadyTimer = setTimeout(async () => {
+    if (rendererReady || !mainWindow || mainWindow.isDestroyed()) return
+    void writeAppLog('startup-timeout', `Renderer did not report ready within 10 seconds (softwareRendering=${softwareRendering})`)
+    mainWindow.show()
+    const actions = softwareRendering ? ['restart', 'reset', 'close'] : ['restart', 'software', 'reset', 'close']
+    const labels = {
+      restart: 'Перезапустить',
+      software: 'Запустить без ускорения',
+      reset: 'Сбросить настройки',
+      close: 'Закрыть',
+    }
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      title: 'SlayCam не загрузился',
+      message: 'Интерфейс не успел запуститься.',
+      detail: softwareRendering
+        ? 'Можно перезапустить SlayCam или сбросить только настройки. Медиафайлы останутся на месте.'
+        : 'Попробуй запуск без графического ускорения — он помогает на компьютерах со старым видеодрайвером. Можно также сбросить только настройки: медиафайлы останутся на месте.',
+      buttons: actions.map((action) => labels[action]),
+      defaultId: 0,
+      cancelId: actions.indexOf('close'),
+      noLink: true,
+    })
+    const action = actions[result.response] ?? 'close'
+    if (action === 'software') {
+      saveStartupState({ failedAttempts: 0, softwareRendering: true })
+      void writeAppLog('software-rendering', 'Enabled by the user from the startup dialog')
+      app.relaunch()
+      app.exit(0)
+    } else if (action === 'restart') {
+      app.relaunch()
+      app.exit(0)
+    } else if (action === 'reset') {
+      await resetStoredConfig()
+      app.relaunch()
+      app.exit(0)
+    } else {
+      mainWindow.close()
+    }
+  }, 10000)
+}
+
+// The interface mounted but no frame ever reached the screen: on Windows that is almost always
+// a broken GPU driver, so retry once in software rendering instead of leaving an empty window.
+async function handleMissingFirstFrame() {
+  if (appExiting || rendererPainted || !mainWindow || mainWindow.isDestroyed()) return
+  // A minimized window legitimately stops painting, so wait for it to come back before judging.
+  if (!mainWindow.isVisible() || mainWindow.isMinimized()) {
+    rendererPaintTimer = setTimeout(() => void handleMissingFirstFrame(), 6000)
+    return
+  }
+  void writeAppLog('paint-timeout', `No frame within 6 seconds (softwareRendering=${softwareRendering})`)
+  if (!softwareRendering) {
+    saveStartupState({ failedAttempts: 0, softwareRendering: true })
+    void writeAppLog('software-rendering', 'Enabled automatically, restarting once')
+    app.relaunch()
+    app.exit(0)
+    return
+  }
+  // Software rendering did not help either, so stop guessing and never nag about it again.
+  saveStartupState({ failedAttempts: 0, softwareRendering: false, skipPaintWatchdog: true })
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    title: 'SlayCam рисует окно не полностью',
+    message: 'Окно SlayCam осталось пустым.',
+    detail: `Скорее всего дело в видеодрайвере компьютера: помогает его обновление. Журнал запуска лежит здесь: ${appLogPath()}`,
+    buttons: ['Понятно', 'Закрыть SlayCam'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  })
+  if (result.response === 1) mainWindow.close()
+}
+
+async function resetStoredConfig() {
+  const currentPath = configPath()
+  if (!existsSync(currentPath)) return true
+  const backupPath = `${currentPath}.backup-${Date.now()}`
+  await rename(currentPath, backupPath)
+  void writeAppLog('config-reset', `Previous settings moved to ${basename(backupPath)}`)
+  return true
 }
 
 function releaseNotesText(notes) {
@@ -283,8 +468,13 @@ async function setupAutoUpdater() {
   updateCheckTimer = setInterval(() => void checkForUpdates(true), 4 * 60 * 60 * 1000)
 }
 
+app.on('child-process-gone', (_event, details) => {
+  void writeAppLog('child-process-gone', details)
+})
+
 app.whenReady().then(async () => {
   app.setAppUserModelId('by.grossmeister.slaycam')
+  void writeAppLog('startup', `SlayCam ${app.getVersion()} on ${process.platform} ${process.arch}, softwareRendering=${softwareRendering}, attempt=${previousStartup.failedAttempts + 1}`)
   await mkdir(mediaPath(), { recursive: true })
   protocol.handle('slaycam-asset', (request) => assetResponse(request, mediaPath()))
   protocol.handle('slaycam-builtin', (request) => assetResponse(request, builtinMediaPath()))
@@ -304,6 +494,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  appExiting = true
+  if (rendererReadyTimer) clearTimeout(rendererReadyTimer)
+  if (rendererRevealTimer) clearTimeout(rendererRevealTimer)
+  if (rendererPaintTimer) clearTimeout(rendererPaintTimer)
   if (updateCheckTimer) clearInterval(updateCheckTimer)
   updateDemo?.dispose()
   stopVirtualCamera()
@@ -322,6 +516,20 @@ ipcMain.handle('config:save', async (_event, config) => {
   await writeFile(tempPath, JSON.stringify(config, null, 2), 'utf8')
   await rename(tempPath, configPath())
   return true
+})
+
+ipcMain.handle('config:reset', async () => {
+  try {
+    await resetStoredConfig()
+    setImmediate(() => {
+      app.relaunch()
+      app.exit(0)
+    })
+    return true
+  } catch (error) {
+    void writeAppLog('config-reset-error', error?.stack || error)
+    return false
+  }
 })
 
 ipcMain.handle('media:import', async (_event, kind = 'all') => {
@@ -369,6 +577,46 @@ ipcMain.handle('external:open', async (_event, url) => {
 function senderWindow(event) {
   return BrowserWindow.fromWebContents(event.sender)
 }
+
+ipcMain.on('renderer:mounted', (event) => {
+  const window = senderWindow(event)
+  if (!window || window !== mainWindow) return
+  rendererReady = true
+  if (rendererReadyTimer) clearTimeout(rendererReadyTimer)
+  if (rendererRevealTimer) clearTimeout(rendererRevealTimer)
+  window.show()
+  window.focus()
+  void writeAppLog('renderer-mounted', `SlayCam ${app.getVersion()} on ${process.platform}, softwareRendering=${softwareRendering}`)
+  if (!startupState.skipPaintWatchdog) rendererPaintTimer = setTimeout(() => void handleMissingFirstFrame(), 6000)
+})
+
+ipcMain.on('renderer:painted', (event) => {
+  const window = senderWindow(event)
+  if (!window || window !== mainWindow || rendererPainted) return
+  rendererPainted = true
+  if (rendererPaintTimer) clearTimeout(rendererPaintTimer)
+  saveStartupState({ failedAttempts: 0 })
+  void writeAppLog('renderer-painted', 'The first frame reached the screen')
+})
+
+ipcMain.on('renderer:error', (_event, details) => {
+  void writeAppLog('renderer-error', String(details || '').slice(0, 12000))
+})
+
+ipcMain.handle('app:show-log', async () => {
+  const path = appLogPath()
+  if (!existsSync(path)) await writeAppLog('log-requested', 'The user opened the startup log')
+  shell.showItemInFolder(path)
+  return true
+})
+
+ipcMain.handle('app:restart', () => {
+  setImmediate(() => {
+    app.relaunch()
+    app.exit(0)
+  })
+  return true
+})
 
 ipcMain.handle('window:minimize', (event) => {
   senderWindow(event)?.minimize()

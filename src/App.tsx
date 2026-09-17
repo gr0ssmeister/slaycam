@@ -48,12 +48,18 @@ function SlayCamApp() {
   const renderStateRef = useRef({ config, background: activeProfile?.background ?? DEFAULT_BACKGROUND, virtualCamera, virtualOutputSize, hands: vision.hands, poses: vision.poses })
 
   useEffect(() => {
-    window.slaycam.loadConfig().then((saved) => {
-      const next = installDefaultMemePack(mergeConfig(saved))
+    const restore = async () => {
+      let next = DEFAULT_CONFIG
+      try {
+        next = installDefaultMemePack(mergeConfig(await window.slaycam.loadConfig()))
+      } catch (error) {
+        window.slaycam.reportRendererError(`config-restore: ${error instanceof Error ? error.stack || error.message : String(error)}`)
+      }
       setConfig(next)
       setSelectedRuleId(next.rules[0]?.id ?? '')
       setLoaded(true)
-    })
+    }
+    void restore()
   }, [])
 
   useEffect(() => {
@@ -78,15 +84,26 @@ function SlayCamApp() {
   }, [])
 
   useEffect(() => {
+    if (!loaded || page !== 'rules') return
     const refreshAudioOutputs = async () => {
-      if (!navigator.mediaDevices?.enumerateDevices) return
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      setAudioOutputs(devices.filter((device) => device.kind === 'audiooutput'))
+      const mediaDevices = navigator.mediaDevices
+      if (!mediaDevices?.enumerateDevices) return
+      try {
+        const devices = await mediaDevices.enumerateDevices()
+        setAudioOutputs(devices.filter((device) => device.kind === 'audiooutput'))
+      } catch {
+        setAudioOutputs([])
+      }
     }
     void refreshAudioOutputs()
-    navigator.mediaDevices?.addEventListener('devicechange', refreshAudioOutputs)
-    return () => navigator.mediaDevices?.removeEventListener('devicechange', refreshAudioOutputs)
-  }, [])
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshAudioOutputs)
+    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', refreshAudioOutputs)
+  }, [loaded, page])
+
+  useEffect(() => {
+    if (!loaded || page !== 'settings') return
+    void vision.refreshDevices()
+  }, [loaded, page, vision.refreshDevices])
 
   useEffect(() => {
     void window.slaycam.getUpdateState().then(setUpdateState)
